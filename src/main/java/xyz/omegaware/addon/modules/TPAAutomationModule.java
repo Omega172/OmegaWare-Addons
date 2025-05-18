@@ -15,7 +15,7 @@ import java.util.regex.Pattern;
 
 public class TPAAutomationModule extends Module {
     public TPAAutomationModule() {
-        super(OmegawareAddons.CATEGORY, "tpa-automations", "A module that automatically accepts or denies teleport requests based on a list of approved players.");
+        super(OmegawareAddons.CATEGORY, "TPA-automations", "A module that automatically accepts or denies teleport requests based on a list of approved players.");
     }
 
     private final SettingGroup sgGeneral = this.settings.getDefaultGroup();

@@ -9,7 +9,6 @@ import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.orbit.EventHandler;
 
 import java.util.Set;
-import java.util.regex.Pattern;
 
 public class ChatFilterModule extends Module {
     public ChatFilterModule() {
@@ -110,8 +109,9 @@ public class ChatFilterModule extends Module {
                 .append(Text.literal("] "))
                 .append(username).formatted(Formatting.AQUA)
                 .append(Text.literal(" » ").formatted(Formatting.WHITE))
-                .append(Text.literal(message).formatted(Formatting.WHITE));
+                .append(Text.literal(message).formatted(Formatting.AQUA));
             event.setMessage(msg);
+            return;
         }
     }
 }
