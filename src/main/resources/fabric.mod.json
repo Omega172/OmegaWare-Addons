@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "id": "addon-template",
+  "id": "omegaware-addons",
   "version": "${version}",
-  "name": "Addon Template",
-  "description": "An addon template for Meteor Client addons.",
+  "name": "OmegaWare Addons",
+  "description": "Addons for Meteor Client",
   "authors": [
-    "seasnail"
+    "Omega172"
   ],
   "contact": {
-    "repo": "https://github.com/MeteorDevelopment/meteor-addon-template"
+    "repo": "https://github.com/Omega172/OmegaWare-Addons"
   },
-  "icon": "assets/template/icon.png",
+  "icon": "assets/icon/icon.png",
   "environment": "client",
   "entrypoints": {
     "meteor": [
-      "com.example.addon.AddonTemplate"
+      "xyz.omegaware.addon.OmegawareAddons"
     ]
   },
   "mixins": [
-    "addon-template.mixins.json"
+    "omegaware-addons.mixins.json"
   ],
   "custom": {
-    "meteor-client:color": "225,25,25"
+    "meteor-client:color": "0,255,255"
   },
   "depends": {
     "java": ">=21",
