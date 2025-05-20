@@ -1,7 +1,9 @@
 package xyz.omegaware.addon;
 
+import meteordevelopment.meteorclient.commands.Commands;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
+import xyz.omegaware.addon.commands.LinkCommand;
 import xyz.omegaware.addon.modules.BeaconRangeModule;
 import xyz.omegaware.addon.modules.ChatFilterModule;
 import xyz.omegaware.addon.modules.TPAAutomationModule;
@@ -33,6 +35,10 @@ public class OmegawareAddons extends MeteorAddon {
         Modules.get().add(new BeaconRangeModule());
         Modules.get().add(new ChatFilterModule());
         Modules.get().add(new TSRKitBotModule());
+
+        Commands.add(new LinkCommand());
+
+        TSRKitBotModule.apiKey = LinkCommand.loadApiKey();
     }
 
     @Override

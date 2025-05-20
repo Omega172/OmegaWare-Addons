@@ -1,48 +1,48 @@
 package xyz.omegaware.addon.modules;
 
+import meteordevelopment.discordipc.DiscordIPC;
 import meteordevelopment.meteorclient.gui.GuiTheme;
+import meteordevelopment.meteorclient.gui.widgets.WLabel;
+import meteordevelopment.meteorclient.gui.widgets.WTexture;
 import meteordevelopment.meteorclient.gui.widgets.WWidget;
 import meteordevelopment.meteorclient.gui.widgets.containers.WHorizontalList;
 import meteordevelopment.meteorclient.gui.widgets.containers.WVerticalList;
+import meteordevelopment.meteorclient.gui.widgets.input.WTextBox;
 import meteordevelopment.meteorclient.gui.widgets.pressable.WButton;
 import meteordevelopment.meteorclient.settings.IntSetting;
 import meteordevelopment.meteorclient.settings.Setting;
 import meteordevelopment.meteorclient.settings.SettingGroup;
-import meteordevelopment.meteorclient.settings.StringSetting;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.utils.player.ChatUtils;
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import xyz.omegaware.addon.OmegawareAddons;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.ProtocolException;
+import java.net.URI;
 import java.net.URL;
 import java.util.Map;
 
 public class TSRKitBotModule extends Module {
+    private static final Logger log = LoggerFactory.getLogger(TSRKitBotModule.class);
+
     public TSRKitBotModule() {
         super(OmegawareAddons.CATEGORY, "TSR-Clan-KitBot-API", "Make kit requests to the TSR Clan KitBot API.");
     }
 
     private final SettingGroup sgGeneral = this.settings.getDefaultGroup();
 
-    private final Setting<String> apiUrl = sgGeneral.add(new StringSetting.Builder()
-        .name("api-url")
-        .description("The URL for the TSR Clan KitBot API.")
-        .defaultValue("https://test.tsr-clan.org")
-        .build()
-    );
+    private static final String apiUrl = "https://test.tsr-clan.org";
 
-    private final Setting<String> apiKey = sgGeneral.add(new StringSetting.Builder()
-        .name("api-key")
-        .description("The API key for the TSR Clan KitBot API.")
-        .defaultValue("")
-        .build()
-    );
+    public static String apiKey = null;
 
     private final Setting<Integer> pvpKit = sgGeneral.add(new IntSetting.Builder()
         .name("kit-pvp")
@@ -197,7 +197,7 @@ public class TSRKitBotModule extends Module {
         .build()
     );
 
-    class Response {
+    public static class Response {
         public int responseCode;
         public String responseBody;
     }
@@ -229,9 +229,18 @@ public class TSRKitBotModule extends Module {
         return Boolean.parseBoolean(json.substring(start, end).trim());
     }
 
-    private final Response sendGetRequest(String endpoint, Map<String, ?> params, String payload) {
+    public static String jsonParseString(String key, String json) {
+        int start = json.indexOf("\"" + key + "\":");
+        if (start == -1) return null;
+        start += key.length() + 3;
+        int end = json.indexOf(",", start);
+        if (end == -1) end = json.indexOf("}", start);
+        return json.substring(start, end).trim().replaceAll("^\"|\"$", "");
+    }
+
+    private Response sendGetRequest(String endpoint, Map<String, ?> params, String payload) {
         try {
-            StringBuilder urlBuilder = new StringBuilder(apiUrl.get() + endpoint);
+            StringBuilder urlBuilder = new StringBuilder(apiUrl + endpoint);
             if (params != null && !params.isEmpty()) {
                 urlBuilder.append("?");
                 for (Map.Entry<String, ?> entry : params.entrySet()) {
@@ -240,11 +249,11 @@ public class TSRKitBotModule extends Module {
                 urlBuilder.deleteCharAt(urlBuilder.length() - 1); // Remove the last '&'
             }
 
-            URL url = new URL(urlBuilder.toString());
+            URL url = URI.create(urlBuilder.toString()).toURL();
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
             connection.setRequestProperty("Content-Type", "application/json");
-            connection.setRequestProperty("x-api-key", apiKey.get());
+            connection.setRequestProperty("x-api-key", apiKey);
 
             if (payload != null) {
                 connection.setDoOutput(true);
@@ -270,19 +279,19 @@ public class TSRKitBotModule extends Module {
         } catch (ProtocolException e) {
             Response response = new Response();
             response.responseCode = -1;
-            response.responseBody = "Error: " + e.getMessage();
+            response.responseBody = "PE Error: " + e.getCause();
             return response;
         } catch (IOException e) {
             Response response = new Response();
             response.responseCode = -1;
-            response.responseBody = "Error: " + e.getMessage();
+            response.responseBody = "IO Error: " + e.getCause();
             return response;
         }
     }
 
-    private final Response sendPostRequest(String endpoint, Map<String, ?> params, String payload) {
+    public static Response sendPostRequest(String endpoint, Map<String, ?> params, String payload) {
         try {
-            StringBuilder urlBuilder = new StringBuilder(apiUrl.get() + endpoint);
+            StringBuilder urlBuilder = new StringBuilder(apiUrl + endpoint);
             if (params != null && !params.isEmpty()) {
                 urlBuilder.append("?");
                 for (Map.Entry<String, ?> entry : params.entrySet()) {
@@ -291,11 +300,11 @@ public class TSRKitBotModule extends Module {
                 urlBuilder.deleteCharAt(urlBuilder.length() - 1); // Remove the last '&'
             }
 
-            URL url = new URL(urlBuilder.toString());
+            URL url = URI.create(urlBuilder.toString()).toURL();
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("POST");
             connection.setRequestProperty("Content-Type", "application/json");
-            connection.setRequestProperty("x-api-key", apiKey.get());
+            connection.setRequestProperty("x-api-key", apiKey);
 
             if (payload != null) {
                 connection.setDoOutput(true);
@@ -304,7 +313,14 @@ public class TSRKitBotModule extends Module {
 
             int responseCode = connection.getResponseCode();
 
-            BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+            InputStream stream;
+            if (responseCode >= 400) {
+                stream = connection.getErrorStream();
+            } else {
+                stream = connection.getInputStream();
+            }
+
+            BufferedReader in = new BufferedReader(new InputStreamReader(stream));
             String inputLine;
             StringBuilder response = new StringBuilder();
             while ((inputLine = in.readLine()) != null) {
@@ -319,13 +335,59 @@ public class TSRKitBotModule extends Module {
         } catch (ProtocolException e) {
             Response response = new Response();
             response.responseCode = -1;
-            response.responseBody = "Error: " + e.getMessage();
+            response.responseBody = "PE Error: " + e.getCause();
             return response;
         } catch (IOException e) {
             Response response = new Response();
             response.responseCode = -1;
-            response.responseBody = "Error: " + e.getMessage();
+            response.responseBody = "IO Error: " + e.getCause();
             return response;
+        }
+    }
+
+    public static boolean getIsLinked(String... code) {
+        if (apiKey != null && !apiKey.isEmpty()) return true;
+
+        String Payload = "{\"minecraft_username\":\"" + MinecraftClient.getInstance().player.getName().getString() + "\", \"discord_id\":\"" + DiscordIPC.getUser().id + "\", \"retrieve_code\":\"" + (code.length > 0 ? code[0] : "") + "\"}";
+        Response response = sendPostRequest("/meteor/link", null, Payload);
+        if (response.responseCode == 200) {
+            String message = jsonParseString("message", response.responseBody);
+
+            if (message != null && message.equals("Retrieval code sent to your Discord DMs."))
+            {
+                Text msg = OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal("Message: ").formatted(Formatting.GREEN))
+                    .append(Text.literal(message).formatted(Formatting.WHITE))
+                    .append(Text.literal("Grab the code and use the command .auth code <CODE>").formatted(Formatting.WHITE));
+                ChatUtils.sendMsg(msg);
+            }
+            apiKey = jsonParseString("api_key", response.responseBody);
+
+            // print api key to chat
+            if (apiKey != null) {
+                Text msg = OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal("Set API Key: ").formatted(Formatting.GREEN))
+                    .append(Text.literal(apiKey).formatted(Formatting.WHITE));
+                ChatUtils.sendMsg(msg);
+            } else {
+                Text msg = OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal("Error: ").formatted(Formatting.RED))
+                    .append(Text.literal("API Key not found.").formatted(Formatting.WHITE));
+                ChatUtils.sendMsg(msg);
+            }
+
+            return apiKey != null && !apiKey.isEmpty();
+        } else {
+            String errorMessage = jsonParseString("error", response.responseBody);
+            if (errorMessage == null) {
+                errorMessage = response.responseBody;
+            }
+
+            Text msg = OmegawareAddons.PREFIX.copy()
+                .append(Text.literal("Error: ").formatted(Formatting.RED))
+                .append(Text.literal(errorMessage).formatted(Formatting.WHITE));
+            ChatUtils.sendMsg(msg);
+            return false;
         }
     }
 
@@ -341,6 +403,7 @@ public class TSRKitBotModule extends Module {
             "minecraft_username", mc.player.getName().getString()
         );
         getBalanceButton.action = () -> {
+            if (!getIsLinked()) return;
             Response response = sendGetRequest("/user", params, null);
             if (response.responseCode == 200) {
                 Text msg = OmegawareAddons.PREFIX.copy()
@@ -348,16 +411,22 @@ public class TSRKitBotModule extends Module {
                     .append(Text.literal(String.valueOf(jsonParseDouble("credits", response.responseBody))).formatted(Formatting.WHITE));
                 ChatUtils.sendMsg(msg);
             } else {
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal(response.responseBody).formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                String errorMessage = jsonParseString("error", response.responseBody);
+            if (errorMessage == null) {
+                errorMessage = response.responseBody;
+            }
+
+            Text msg = OmegawareAddons.PREFIX.copy()
+                .append(Text.literal("Error: ").formatted(Formatting.RED))
+                .append(Text.literal(errorMessage).formatted(Formatting.WHITE));
+            ChatUtils.sendMsg(msg);
             }
         };
         hList.add(getBalanceButton);
 
         WButton getQueuePositionButton = theme.button("Get Queue Position");
         getQueuePositionButton.action = () -> {
+            if (!getIsLinked()) return;
             Response response = sendGetRequest("/order/position", params, null);
             if (response.responseCode == 200) {
                 int queuePosition = jsonParseInt("position", response.responseBody);
@@ -373,10 +442,15 @@ public class TSRKitBotModule extends Module {
                     .append(Text.literal(String.valueOf(queuePosition)).formatted(Formatting.WHITE));
                 ChatUtils.sendMsg(msg);
             } else {
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal(response.responseBody).formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                String errorMessage = jsonParseString("error", response.responseBody);
+            if (errorMessage == null) {
+                errorMessage = response.responseBody;
+            }
+
+            Text msg = OmegawareAddons.PREFIX.copy()
+                .append(Text.literal("Error: ").formatted(Formatting.RED))
+                .append(Text.literal(errorMessage).formatted(Formatting.WHITE));
+            ChatUtils.sendMsg(msg);
             }
         };
         hList.add(getQueuePositionButton);
@@ -387,6 +461,7 @@ public class TSRKitBotModule extends Module {
 
         WButton orderButton = theme.button("Place Order");
         orderButton.action = () -> {
+            if (!getIsLinked()) return;
             int kitTotal = pvpKit.get() + cpvpKit.get() + refillKit.get() + griefKit.get() + hunterKit.get() + mapartKit.get() + highwayKit.get() + redstoneKit.get() + buildKit.get() + build2Kit.get() + build3Kit.get() + build4Kit.get() + build5Kit.get() + build6Kit.get() + toolsKit.get() + totemKit.get() + censoredKit.get();
             if (kitTotal > 27) {
                 Text msg = OmegawareAddons.PREFIX.copy()
@@ -396,19 +471,9 @@ public class TSRKitBotModule extends Module {
                 return;
             }
 
-            Response response = sendGetRequest("/user", params, null);
-            boolean hasPriority = false;
-            if (response.responseCode == 200) {
-                hasPriority = jsonParseBoolean("priority_queue", response.responseBody);
-            } else {
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal(response.responseBody).formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
-            }
-
             String payload = "{";
             payload += "\"minecraft_username\":\"" + mc.player.getName().getString() + "\",";
+            payload += "\"request_type\":\"" + (kitTotal > 1 ? "credits" : "normal") + "\",";
             payload += "\"kit_orders\": [";
             if (pvpKit.get() > 0) payload += "{\"kit\":\"pvp\",\"quantity\":" + pvpKit.get() + "},";
             if (cpvpKit.get() > 0) payload += "{\"kit\":\"cpvp\",\"quantity\":" + cpvpKit.get() + "},";
@@ -435,7 +500,7 @@ public class TSRKitBotModule extends Module {
             payload += "]";
             payload += "}" ;
 
-            response = sendPostRequest("/order", null, payload);
+            Response response = sendPostRequest("/order", null, payload);
             if (response.responseCode == 200) {
                 Text msg = OmegawareAddons.PREFIX.copy()
                     .append(Text.literal("Order Placed: ").formatted(Formatting.GREEN))
@@ -445,32 +510,52 @@ public class TSRKitBotModule extends Module {
                     .append(Text.literal(String.valueOf(jsonParseBoolean("priority", response.responseBody))).formatted(Formatting.WHITE));
                 ChatUtils.sendMsg(msg);
             } else {
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal(response.responseBody).formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                String errorMessage = jsonParseString("error", response.responseBody);
+            if (errorMessage == null) {
+                errorMessage = response.responseBody;
+            }
+
+            Text msg = OmegawareAddons.PREFIX.copy()
+                .append(Text.literal("Error: ").formatted(Formatting.RED))
+                .append(Text.literal(errorMessage).formatted(Formatting.WHITE));
+            ChatUtils.sendMsg(msg);
             }
         };
         hList2.add(orderButton);
 
-        WButton cancelButton = theme.button("Cancel Orders");
+        WHorizontalList hList3 = list.add(theme.horizontalList()).expandX().widget();
+
+        WLabel label = theme.label("Order ID: ");
+        WTextBox textBox = theme.textBox("");
+        textBox.minWidth = 80;
+
+        WButton cancelButton = theme.button("Cancel Order");
         cancelButton.action = () -> {
-            String payload = "{\"minecraft_username\":\"" + mc.player.getName().getString() + "\"}";
+            if (!getIsLinked() || textBox.get() == null) return;
+
+            String payload = "{\"order_id\":" + textBox.get() + "}";
 
             Response response = sendPostRequest("/order/cancel", null, payload);
             if (response.responseCode == 200) {
                 Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Cancelled Orders: ").formatted(Formatting.GREEN))
-                    .append(Text.literal(String.valueOf(jsonParseInt("cancelled_count", response.responseBody))).formatted(Formatting.WHITE));
+                    .append(Text.literal("Order Cancelled: ").formatted(Formatting.GREEN))
+                    .append(Text.literal(String.valueOf(jsonParseInt("order_id", response.responseBody))).formatted(Formatting.WHITE));
                 ChatUtils.sendMsg(msg);
             } else {
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal(response.responseBody).formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                String errorMessage = jsonParseString("error", response.responseBody);
+            if (errorMessage == null) {
+                errorMessage = response.responseBody;
+            }
+
+            Text msg = OmegawareAddons.PREFIX.copy()
+                .append(Text.literal("Error: ").formatted(Formatting.RED))
+                .append(Text.literal(errorMessage).formatted(Formatting.WHITE));
+            ChatUtils.sendMsg(msg);
             }
         };
-        hList2.add(cancelButton);
+        hList3.add(cancelButton);
+        hList3.add(label);
+        hList3.add(textBox);
 
         return list;
     }
