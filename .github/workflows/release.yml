@@ -1,59 +1,47 @@
-name: Build and Draft Release
-
+name: Publish Release Draft
 on:
     workflow_dispatch:
-    push:
-        tags: [ "v*" ]
 
 jobs:
-    build-and-release:
+    build:
         runs-on: ubuntu-latest
 
         steps:
-            - name: Checkout code
+            - name: Checkout Repository
               uses: actions/checkout@v4
+              with:
+                  persist-credentials: false
 
-            - name: Set up JDK 21
+            - name: Set up Gradle
+              uses: gradle/actions/setup-gradle@v4
+
+            - name: Set up Java
               uses: actions/setup-java@v4
               with:
                   distribution: 'temurin'
-                  java-version: '21'
-
-            - name: Grant execute permission for gradlew
-              run: chmod +x ./gradlew
+                  java-version: 21
 
             - name: Build with Gradle
               run: ./gradlew build
 
-            - name: Get mod_version from gradle.properties
-              id: get_version
+            - name: Get mod and Minecraft version
+              id: get_versions
               run: |
-                  version=$(grep "^mod_version=" gradle.properties | cut -d'=' -f2)
-                  echo "version=$version" >> $GITHUB_OUTPUT
+                  mod_version=$(grep "^mod_version=" gradle.properties | cut -d'=' -f2)
+                  mc_version=$(grep "^minecraft_version=" gradle.properties | cut -d'=' -f2)
+                  echo "mod_version=$mod_version" >> $GITHUB_OUTPUT
+                  echo "mc_version=$mc_version" >> $GITHUB_OUTPUT
 
-            - name: Get changelog for this version
-              id: changelog
-              run: |
-                  version="${{ steps.get_version.outputs.version }}"
-                  awk "/^## \\[?$version\\]?/ {flag=1; next} /^## / {flag=0} flag" CHANGELOG.md > body.md
-                  echo "body<<EOF" >> $GITHUB_OUTPUT
-                  cat body.md >> $GITHUB_OUTPUT
-                  echo "EOF" >> $GITHUB_OUTPUT
-
-            - name: Create GitHub Release (draft)
+            - name: Create GitHub Release Draft
               uses: softprops/action-gh-release@v2
               with:
-                  tag_name: v${{ steps.get_version.outputs.version }}
-                  name: Release v${{ steps.get_version.outputs.version }}
-                  body: ${{ steps.changelog.outputs.body }}
+                  tag_name: v${{ steps.get_versions.outputs.mod_version }}-mc${{ steps.get_versions.outputs.mc_version }}
+                  name: Release v${{ steps.get_versions.outputs.mod_version }} (MC ${{ steps.get_versions.outputs.mc_version }})
+                  body: |
+                      Draft release for mod version ${{ steps.get_versions.outputs.mod_version }} and Minecraft ${{ steps.get_versions.outputs.mc_version }}.
                   draft: true
+                  prerelease: false
+                  files: build/libs/*.jar
+                  generate_release_notes: true
               env:
                   GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
-
-            - name: Upload jars to Release
-              uses: softprops/action-gh-release@v2
-              with:
-                  files: build/libs/*.jar
-                  tag_name: v${{ steps.get_version.outputs.version }}
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
