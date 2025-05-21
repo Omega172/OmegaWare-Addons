@@ -563,7 +563,7 @@ public class TSRKitBotModule extends Module {
 
         WButton listActiveOrdersButton = theme.button("List Active Orders");
         listActiveOrdersButton.action = () -> {
-            conditionallyPrintOrders("pending", "processing");
+            conditionallyPrintOrders("pending", "delivering");
         };
         hList2.add(listActiveOrdersButton);
 
@@ -666,7 +666,7 @@ public class TSRKitBotModule extends Module {
         WTextBox amountTextBox = theme.textBox("");
         amountTextBox.minWidth = 100;
 
-        WLabel targetLabel = theme.label("Target Discord ID: ");
+        WLabel targetLabel = theme.label("Target MC Username or Discord ID: ");
         WTextBox targetTextBox = theme.textBox("");
         targetTextBox.minWidth = 100;
 
@@ -690,18 +690,19 @@ public class TSRKitBotModule extends Module {
                 return;
             }
 
-            if (!targetTextBox.get().matches("\\d+")) {
+            if (Integer.parseInt(amountTextBox.get()) <= 0) {
                 Text msg = OmegawareAddons.PREFIX.copy()
                     .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal("Target Discord ID must be a number.").formatted(Formatting.WHITE));
+                    .append(Text.literal("Amount must be at least 1").formatted(Formatting.WHITE));
                 ChatUtils.sendMsg(msg);
                 return;
             }
 
             JsonObject payload = new JsonObject();
-            payload.addProperty("from_discord_id", DiscordIPC.getUser().id);
+            assert mc.player != null;
+            payload.addProperty("from_minecraft_username", mc.player.getName().getString());
             payload.addProperty("to_discord_id", targetTextBox.get());
-            payload.addProperty("amount", amountTextBox.get());
+            payload.addProperty("amount", Integer.parseInt(amountTextBox.get()));
 
             Http.Request request = Http.post(apiUrl + "/transfer")
                 .header("Content-Type", "application/json")
@@ -711,6 +712,14 @@ public class TSRKitBotModule extends Module {
             HttpResponse<JsonObject> response = request.sendJsonResponse(JsonObject.class);
 
             if (response.statusCode() == 200) {
+                if (response.body().has("error")) {
+                    Text msg = OmegawareAddons.PREFIX.copy()
+                        .append(Text.literal("Error: ").formatted(Formatting.RED))
+                        .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
+                    ChatUtils.sendMsg(msg);
+                    return;
+                }
+
                 Text msg = OmegawareAddons.PREFIX.copy()
                     .append(Text.literal("Tokens Sent: ").formatted(Formatting.GREEN))
                     .append(Text.literal(response.body().get("message").getAsString()).formatted(Formatting.WHITE));
