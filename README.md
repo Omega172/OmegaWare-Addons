@@ -1,85 +1,47 @@
-# Meteor Addon Template
+# OmegaWare Addons (For Meteor Client)
 
-A template to allow easy usage of the Meteor Addon API.
+## Features
+- **TPA Automations**:
+  - Automatically accepts teleport requests from approved users.
+  - Can automatically deny teleport requests from unapproved users.
+  - Can filter out the servers teleport messages so they are not shown in chat.
+  - Has various settings to log when specific actions are taken.
+  - **Made for the play.6b6t.org server**.
+- **6B6T Chat Filter**:
+  - Can filter out specific messages from chat based on the criteria you set.
+  - Can filter out messages from specific users.
+  - Can filter the chat to only show messages from users with a rank.
+- **Beacon Range**:
+  - Displays the range of powered beacons.
+  - The range box's color can be changed.
+  - There is a setting to cull overlapping sections of range boxes.
+- **TSR Clan KitBot API**:
+  - Check your token balance.
+  - Order kits
+  - List your active, pending, completed, and failed orders.
+  - Cancel orders.
+  - Send tokens to other users.
 
-### How to use
+## Building
+### Local Build
+1. Clone the repository.
+2. Open the terminal and navigate to the cloned repository.
+3. Run the following command to build the project:
+   ```bash
+   ./gradlew build
+   ```
+4. The built modules will be located in the `build/libs` directory.
 
-- Clone this project
-- Use this template to create new modules/commands
-- Build the executable using the gradle `build` task.
-- Run the mod with Meteor.
+### Github Actions Build
+1. Fork the repository.
+2. Go into the `Actions` tab of the repository.
+3. Go to the `Manual Build and Upload` workflow.
+4. Click on `Run Workflow`.
+5. Once the workflow is complete, the built modules will be located in the `artifacts` section of the workflow run.
 
-### Project structure
 
-```text
-.
-│── .github
-│   ╰── workflows
-│       │── dev_build.yml
-│       ╰── pull_request.yml
-│── gradle
-│   ╰── wrapper
-│       │── gradle-wrapper.jar
-│       ╰── gradle-wrapper.properties
-│── src
-│   ╰── main
-│       │── java
-│       │   ╰── com
-│       │       ╰── example
-│       │           ╰── addon
-│       │               │── commands
-│       │               │   ╰── CommandExample
-│       │               │── hud
-│       │               │   ╰── HudExample
-│       │               │── modules
-│       │               │   ╰── ModuleExample
-│       │               ╰── AddonTemplate
-│       ╰── resources
-│           │── assets
-│           │   ╰── template
-│           │       ╰── icon.png
-│           │── addon-template.mixins.json
-│           ╰── fabric.mod.json
-│── .editorconfig
-│── .gitignore
-│── build.gradle
-│── gradle.properties
-│── gradlew
-│── gradlew.bat
-│── LICENSE
-│── README.md
-╰── settings.gradle
-```
-
-This is the default project structure. Each folder/file has a specific purpose.  
-Here is a brief explanation of the ones you might need to modify:
-
-- `.github/workflows`: Contains the GitHub Actions configuration files.
-- `gradle`: Contains the Gradle wrapper files.  
-  Edit the `gradle.properties` file to change the version of the Gradle wrapper.
-- `src/main/java/com/example/addon`: Contains the main class of the addon.  
-  Here you can register your custom commands, modules, and HUDs.  
-  Edit the `getPackage` method to reflect the package of your addon.
-- `src/main/resources`: Contains the resources of the addon.
-    - `assets`: Contains the assets of the addon.  
-      You can add your own assets here, separated in subfolders.
-        - `template`: Contains the assets of the template.  
-          You can replace the `icon.png` file with your own addon icon.  
-          Also, rename this folder to reflect the name of your addon.
-    - `addon-template.mixins.json`: Contains the Mixin configuration for the addon.  
-      You can add your own mixins in the `client` array.
-    - `fabric.mod.json`: Contains the metadata of the addon.  
-      Edit the various fields to reflect the metadata of your addon.
-- `build.gradle.kts`: Contains the Gradle build script.  
-  You can manage the dependencies of the addon here.  
-  Remember to keep the `fabric-loom` version up-to-date.
-- `gradle.properties.kts`: Contains the properties of the Gradle build.  
-  These will be used by the build script.
-- `LICENSE`: Contains the license of the addon.  
-  You can edit this file to change the license of your addon.
-- `README.md`: Contains the documentation of the addon.  
-  You can edit this file to reflect the documentation of your addon, and showcase its features.
+## Contributing
+Contributions are welcome! If you have any suggestions or improvements, feel free to open an issue or submit a pull request.
 
 ## License
-
-This template is available under the CC0 license. Feel free to use it for your own projects.
+[GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.en.html) - This project is licensed under the GPL-3.0 License - see the [LICENSE](LICENSE) file for details.
