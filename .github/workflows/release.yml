@@ -1,0 +1,59 @@
+name: Build and Draft Release
+
+on:
+    workflow_dispatch:
+    push:
+        tags: [ "v*" ]
+
+jobs:
+    build-and-release:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Set up JDK 17
+              uses: actions/setup-java@v4
+              with:
+                  distribution: 'temurin'
+                  java-version: '17'
+
+            - name: Grant execute permission for gradlew
+              run: chmod +x ./gradlew
+
+            - name: Build with Gradle
+              run: ./gradlew build
+
+            - name: Get mod_version from gradle.properties
+              id: get_version
+              run: |
+                  version=$(grep "^mod_version=" gradle.properties | cut -d'=' -f2)
+                  echo "version=$version" >> $GITHUB_OUTPUT
+
+            - name: Get changelog for this version
+              id: changelog
+              run: |
+                  version="${{ steps.get_version.outputs.version }}"
+                  awk "/^## \\[?$version\\]?/ {flag=1; next} /^## / {flag=0} flag" CHANGELOG.md > body.md
+                  echo "body<<EOF" >> $GITHUB_OUTPUT
+                  cat body.md >> $GITHUB_OUTPUT
+                  echo "EOF" >> $GITHUB_OUTPUT
+
+            - name: Create GitHub Release (draft)
+              uses: softprops/action-gh-release@v2
+              with:
+                  tag_name: v${{ steps.get_version.outputs.version }}
+                  name: Release v${{ steps.get_version.outputs.version }}
+                  body: ${{ steps.changelog.outputs.body }}
+                  draft: true
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Upload jars to Release
+              uses: softprops/action-gh-release@v2
+              with:
+                  files: build/libs/*.jar
+                  tag_name: v${{ steps.get_version.outputs.version }}
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

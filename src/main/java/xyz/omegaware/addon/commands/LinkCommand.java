@@ -3,13 +3,8 @@ package xyz.omegaware.addon.commands;
 
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
-import meteordevelopment.discordipc.DiscordIPC;
 import meteordevelopment.meteorclient.commands.Command;
-import meteordevelopment.meteorclient.utils.player.ChatUtils;
 import net.minecraft.command.CommandSource;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
-import xyz.omegaware.addon.OmegawareAddons;
 import xyz.omegaware.addon.modules.TSRKitBotModule;
 
 import java.io.IOException;

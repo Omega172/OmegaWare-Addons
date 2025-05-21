@@ -37,19 +37,17 @@ import java.net.http.HttpResponse;
 import java.util.Map;
 
 public class TSRKitBotModule extends Module {
-    private static final Logger log = LoggerFactory.getLogger(TSRKitBotModule.class);
-
     public TSRKitBotModule() {
         super(OmegawareAddons.CATEGORY, "TSR-Clan-KitBot-API", "Make kit requests to the TSR Clan KitBot API.");
     }
 
-    private final SettingGroup sgGeneral = this.settings.getDefaultGroup();
+    private final SettingGroup sgKits = this.settings.createGroup("Kits", false);
 
     private static final String apiUrl = "https://test.tsr-clan.org";
 
     public static String apiKey = null;
 
-    private final Setting<Integer> pvpKit = sgGeneral.add(new IntSetting.Builder()
+    private final Setting<Integer> pvpKit = sgKits.add(new IntSetting.Builder()
         .name("kit-pvp")
         .description("Number of this kit you want to order.")
         .defaultValue(0)
@@ -58,7 +56,7 @@ public class TSRKitBotModule extends Module {
         .build()
     );
 
-    private final Setting<Integer> cpvpKit = sgGeneral.add(new IntSetting.Builder()
+    private final Setting<Integer> cpvpKit = sgKits.add(new IntSetting.Builder()
         .name("kit-cpvp")
         .description("Number of this kit you want to order.")
         .defaultValue(0)
@@ -67,7 +65,7 @@ public class TSRKitBotModule extends Module {
         .build()
     );
 
-    private final Setting<Integer> refillKit = sgGeneral.add(new IntSetting.Builder()
+    private final Setting<Integer> refillKit = sgKits.add(new IntSetting.Builder()
         .name("kit-refill")
         .description("Number of this kit you want to order.")
         .defaultValue(0)
@@ -76,7 +74,7 @@ public class TSRKitBotModule extends Module {
         .build()
     );
 
-    private final Setting<Integer> griefKit = sgGeneral.add(new IntSetting.Builder()
+    private final Setting<Integer> griefKit = sgKits.add(new IntSetting.Builder()
         .name("kit-grief")
         .description("Number of this kit you want to order.")
         .defaultValue(0)
@@ -85,7 +83,7 @@ public class TSRKitBotModule extends Module {
         .build()
     );
 
-    private final Setting<Integer> hunterKit = sgGeneral.add(new IntSetting.Builder()
+    private final Setting<Integer> hunterKit = sgKits.add(new IntSetting.Builder()
         .name("kit-hunter")
         .description("Number of this kit you want to order.")
         .defaultValue(0)
@@ -94,7 +92,7 @@ public class TSRKitBotModule extends Module {
         .build()
     );
 
-    private final Setting<Integer> mapartKit = sgGeneral.add(new IntSetting.Builder()
+    private final Setting<Integer> mapartKit = sgKits.add(new IntSetting.Builder()
         .name("kit-mapart")
         .description("Number of this kit you want to order.")
         .defaultValue(0)
@@ -103,7 +101,7 @@ public class TSRKitBotModule extends Module {
         .build()
     );
 
-    private final Setting<Integer> highwayKit = sgGeneral.add(new IntSetting.Builder()
+    private final Setting<Integer> highwayKit = sgKits.add(new IntSetting.Builder()
         .name("kit-highway")
         .description("Number of this kit you want to order.")
         .defaultValue(0)
@@ -112,7 +110,7 @@ public class TSRKitBotModule extends Module {
         .build()
     );
 
-    private final Setting<Integer> redstoneKit = sgGeneral.add(new IntSetting.Builder()
+    private final Setting<Integer> redstoneKit = sgKits.add(new IntSetting.Builder()
         .name("kit-name")
         .description("Number of this kit you want to order.")
         .defaultValue(0)
@@ -121,7 +119,7 @@ public class TSRKitBotModule extends Module {
         .build()
     );
 
-    private final Setting<Integer> buildKit = sgGeneral.add(new IntSetting.Builder()
+    private final Setting<Integer> buildKit = sgKits.add(new IntSetting.Builder()
         .name("kit-build")
         .description("Number of this kit you want to order.")
         .defaultValue(0)
@@ -130,7 +128,7 @@ public class TSRKitBotModule extends Module {
         .build()
     );
 
-    private final Setting<Integer> build2Kit = sgGeneral.add(new IntSetting.Builder()
+    private final Setting<Integer> build2Kit = sgKits.add(new IntSetting.Builder()
         .name("kit-build2")
         .description("Number of this kit you want to order.")
         .defaultValue(0)
@@ -139,7 +137,7 @@ public class TSRKitBotModule extends Module {
         .build()
     );
 
-    private final Setting<Integer> build3Kit = sgGeneral.add(new IntSetting.Builder()
+    private final Setting<Integer> build3Kit = sgKits.add(new IntSetting.Builder()
         .name("kit-build3")
         .description("Number of this kit you want to order.")
         .defaultValue(0)
@@ -148,7 +146,7 @@ public class TSRKitBotModule extends Module {
         .build()
     );
 
-    private final Setting<Integer> build4Kit = sgGeneral.add(new IntSetting.Builder()
+    private final Setting<Integer> build4Kit = sgKits.add(new IntSetting.Builder()
         .name("kit-build4")
         .description("Number of this kit you want to order.")
         .defaultValue(0)
@@ -157,7 +155,7 @@ public class TSRKitBotModule extends Module {
         .build()
     );
 
-    private final Setting<Integer> build5Kit = sgGeneral.add(new IntSetting.Builder()
+    private final Setting<Integer> build5Kit = sgKits.add(new IntSetting.Builder()
         .name("kit-build5")
         .description("Number of this kit you want to order.")
         .defaultValue(0)
@@ -166,7 +164,7 @@ public class TSRKitBotModule extends Module {
         .build()
     );
 
-    private final Setting<Integer> build6Kit = sgGeneral.add(new IntSetting.Builder()
+    private final Setting<Integer> build6Kit = sgKits.add(new IntSetting.Builder()
         .name("kit-build6")
         .description("Number of this kit you want to order.")
         .defaultValue(0)
@@ -175,7 +173,7 @@ public class TSRKitBotModule extends Module {
         .build()
     );
 
-    private final Setting<Integer> toolsKit = sgGeneral.add(new IntSetting.Builder()
+    private final Setting<Integer> toolsKit = sgKits.add(new IntSetting.Builder()
         .name("kit-tools")
         .description("Number of this kit you want to order.")
         .defaultValue(0)
@@ -184,7 +182,7 @@ public class TSRKitBotModule extends Module {
         .build()
     );
 
-    private final Setting<Integer> totemKit = sgGeneral.add(new IntSetting.Builder()
+    private final Setting<Integer> totemKit = sgKits.add(new IntSetting.Builder()
         .name("kit-totem")
         .description("Number of this kit you want to order.")
         .defaultValue(0)
@@ -193,7 +191,7 @@ public class TSRKitBotModule extends Module {
         .build()
     );
 
-    private final Setting<Integer> censoredKit = sgGeneral.add(new IntSetting.Builder()
+    private final Setting<Integer> censoredKit = sgKits.add(new IntSetting.Builder()
         .name("kit-censored")
         .description("Number of this kit you want to order.")
         .defaultValue(0)
@@ -206,6 +204,7 @@ public class TSRKitBotModule extends Module {
         if (apiKey != null && !apiKey.isEmpty()) return true;
 
         JsonObject payload = new JsonObject();
+        assert MinecraftClient.getInstance().player != null;
         payload.addProperty("minecraft_username", MinecraftClient.getInstance().player.getName().getString());
         payload.addProperty("discord_id", DiscordIPC.getUser().id);
         payload.addProperty("retrieve_code", code.length > 0 ? code[0] : "");
@@ -248,6 +247,63 @@ public class TSRKitBotModule extends Module {
                 .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
             ChatUtils.sendMsg(msg);
             return false;
+        }
+    }
+
+    private static void conditionallyPrintOrders(String... statusFlag) {
+        if (!getIsLinked()) return;
+
+        assert MinecraftClient.getInstance().player != null;
+        Http.Request request = Http.get(apiUrl + "/order/history?minecraft_username=" + MinecraftClient.getInstance().player.getName().getString())
+            .header("Content-Type", "application/json")
+            .header("x-api-key", apiKey);
+
+        HttpResponse<JsonObject> response = request.sendJsonResponse(JsonObject.class);
+
+        if (response.statusCode() == 200) {
+            JsonArray orders = response.body().getAsJsonArray("orders");
+            if (orders.isEmpty()) {
+                Text msg = OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal("No order history.").formatted(Formatting.GREEN));
+                ChatUtils.sendMsg(msg);
+                return;
+            }
+
+            for (JsonElement order : orders) {
+                JsonObject orderObj = order.getAsJsonObject();
+                String orderId = orderObj.get("order_id").getAsString();
+                String status = orderObj.get("status").getAsString();
+                String requestType = orderObj.get("request_type").getAsString();
+                String quantity = orderObj.get("quantity").getAsString();
+
+                boolean isValidStatus = true;
+                for (String flag : statusFlag) {
+                    if (!status.equals(flag)) {
+                        isValidStatus = false;
+                        break;
+                    }
+                }
+                if (!isValidStatus) continue;
+
+                Text msg = OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal("Order ID: ").formatted(Formatting.GREEN))
+                    .append(Text.literal(orderId).formatted(Formatting.WHITE))
+                    .append(Text.literal("\n | ").formatted(Formatting.WHITE))
+                    .append(Text.literal("Status: ").formatted(Formatting.GREEN))
+                    .append(Text.literal(status).formatted(Formatting.WHITE))
+                    .append(Text.literal("\n | ").formatted(Formatting.WHITE))
+                    .append(Text.literal("Request Type: ").formatted(Formatting.GREEN))
+                    .append(Text.literal(requestType).formatted(Formatting.WHITE))
+                    .append(Text.literal("\n | ").formatted(Formatting.WHITE))
+                    .append(Text.literal("Quantity: ").formatted(Formatting.GREEN))
+                    .append(Text.literal(quantity).formatted(Formatting.WHITE));
+                ChatUtils.sendMsg(msg);
+            }
+        } else {
+            Text msg = OmegawareAddons.PREFIX.copy()
+                .append(Text.literal("Error: ").formatted(Formatting.RED))
+                .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
+            ChatUtils.sendMsg(msg);
         }
     }
 
@@ -294,14 +350,11 @@ public class TSRKitBotModule extends Module {
             HttpResponse<JsonObject> response = request.sendJsonResponse(JsonObject.class);
 
             if (response.statusCode() == 200) {
-                // Can either return {"message":"No pending orders"} or {"position":0}
-
                 if (response.body().has("message")) {
                     Text msg = OmegawareAddons.PREFIX.copy()
                         .append(Text.literal("Message: ").formatted(Formatting.GREEN))
                         .append(Text.literal(response.body().get("message").getAsString()).formatted(Formatting.WHITE));
                     ChatUtils.sendMsg(msg);
-                    return;
                 } else {
                     Text msg = OmegawareAddons.PREFIX.copy()
                         .append(Text.literal("Queue Position: ").formatted(Formatting.GREEN))
@@ -329,6 +382,14 @@ public class TSRKitBotModule extends Module {
                 Text msg = OmegawareAddons.PREFIX.copy()
                     .append(Text.literal("Error: ").formatted(Formatting.RED))
                     .append(Text.literal("You can only order a maximum of 27 kits.").formatted(Formatting.WHITE));
+                ChatUtils.sendMsg(msg);
+                return;
+            }
+
+            if (kitTotal == 0 || kitTotal < 0) {
+                Text msg = OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal("Error: ").formatted(Formatting.RED))
+                    .append(Text.literal("You must select at least 1 kit.").formatted(Formatting.WHITE));
                 ChatUtils.sendMsg(msg);
                 return;
             }
@@ -502,72 +563,21 @@ public class TSRKitBotModule extends Module {
 
         WButton listActiveOrdersButton = theme.button("List Active Orders");
         listActiveOrdersButton.action = () -> {
-            if (!getIsLinked()) return;
-
-            assert mc.player != null;
-            Http.Request request = Http.get(apiUrl + "/order/history?minecraft_username=" + mc.player.getName().getString())
-                .header("Content-Type", "application/json")
-                .header("x-api-key", apiKey);
-
-            // returns a list orders: [ {
-            //      "order_id": 44025,
-            //      "status": "completed",
-            //      "request_type": "rank",
-            //      "quantity": 1,
-            //      "kits": [
-            //        {
-            //          "kit": "hunter",
-            //          "quantity": 1
-            //        }
-            //      ],
-            //      "delivery_time": 1746944313434,
-            //      "assigned_at": null,
-            //      "completed_at": null
-            //    } ]
-            HttpResponse<JsonObject> response = request.sendJsonResponse(JsonObject.class);
-
-            if (response.statusCode() == 200) {
-                JsonArray orders = response.body().getAsJsonArray("orders");
-                if (orders.isEmpty()) {
-                    Text msg = OmegawareAddons.PREFIX.copy()
-                        .append(Text.literal("No order history.").formatted(Formatting.GREEN));
-                    ChatUtils.sendMsg(msg);
-                    return;
-                }
-
-                for (JsonElement order : orders) {
-                    JsonObject orderObj = order.getAsJsonObject();
-                    String orderId = orderObj.get("order_id").getAsString();
-                    String status = orderObj.get("status").getAsString();
-                    String requestType = orderObj.get("request_type").getAsString();
-                    String quantity = orderObj.get("quantity").getAsString();
-                    String deliveryTime = orderObj.get("delivery_time").getAsString();
-
-                    Text msg = OmegawareAddons.PREFIX.copy()
-                        .append(Text.literal("Order ID: ").formatted(Formatting.GREEN))
-                        .append(Text.literal(orderId).formatted(Formatting.WHITE))
-                        .append(Text.literal(" | ").formatted(Formatting.WHITE))
-                        .append(Text.literal("Status: ").formatted(Formatting.GREEN))
-                        .append(Text.literal(status).formatted(Formatting.WHITE))
-                        .append(Text.literal(" | ").formatted(Formatting.WHITE))
-                        .append(Text.literal("Request Type: ").formatted(Formatting.GREEN))
-                        .append(Text.literal(requestType).formatted(Formatting.WHITE))
-                        .append(Text.literal(" | ").formatted(Formatting.WHITE))
-                        .append(Text.literal("Quantity: ").formatted(Formatting.GREEN))
-                        .append(Text.literal(quantity).formatted(Formatting.WHITE))
-                        .append(Text.literal(" | ").formatted(Formatting.WHITE))
-                        .append(Text.literal("Delivery Time: ").formatted(Formatting.GREEN))
-                        .append(Text.literal(deliveryTime).formatted(Formatting.WHITE));
-                    ChatUtils.sendMsg(msg);
-                }
-            } else {
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
-            }
+            conditionallyPrintOrders("pending", "processing");
         };
         hList2.add(listActiveOrdersButton);
+
+        WButton listCompletedOrdersButton = theme.button("List Completed Orders");
+        listCompletedOrdersButton.action = () -> {
+            conditionallyPrintOrders("completed");
+        };
+        hList2.add(listCompletedOrdersButton);
+
+        WButton listFailedOrdersButton = theme.button("List Failed Orders");
+        listFailedOrdersButton.action = () -> {
+            conditionallyPrintOrders("failed");
+        };
+        hList2.add(listFailedOrdersButton);
 
         WHorizontalList hList3 = list.add(theme.horizontalList()).expandX().widget();
 
@@ -602,7 +612,7 @@ public class TSRKitBotModule extends Module {
 
         WLabel label = theme.label("Order ID: ");
         WTextBox textBox = theme.textBox("");
-        textBox.minWidth = 80;
+        textBox.minWidth = 100;
 
         WButton cancelButton = theme.button("Cancel Order");
         cancelButton.action = () -> {
@@ -612,6 +622,14 @@ public class TSRKitBotModule extends Module {
                 Text msg = OmegawareAddons.PREFIX.copy()
                     .append(Text.literal("Error: ").formatted(Formatting.RED))
                     .append(Text.literal("Please enter an order ID.").formatted(Formatting.WHITE));
+                ChatUtils.sendMsg(msg);
+                return;
+            }
+
+            if (!textBox.get().matches("\\d+")) {
+                Text msg = OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal("Error: ").formatted(Formatting.RED))
+                    .append(Text.literal("Order ID must be a number.").formatted(Formatting.WHITE));
                 ChatUtils.sendMsg(msg);
                 return;
             }
@@ -641,6 +659,74 @@ public class TSRKitBotModule extends Module {
         hList3.add(cancelButton);
         hList3.add(label);
         hList3.add(textBox);
+
+        WHorizontalList hList4 = list.add(theme.horizontalList()).expandX().widget();
+
+        WLabel amountLabel = theme.label("Amount: ");
+        WTextBox amountTextBox = theme.textBox("");
+        amountTextBox.minWidth = 100;
+
+        WLabel targetLabel = theme.label("Target Discord ID: ");
+        WTextBox targetTextBox = theme.textBox("");
+        targetTextBox.minWidth = 100;
+
+        WButton sendTokensButton = theme.button("Send Tokens");
+        sendTokensButton.action = () -> {
+            if (!getIsLinked()) return;
+
+            if (amountTextBox.get().isEmpty() || targetTextBox.get().isEmpty()) {
+                Text msg = OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal("Error: ").formatted(Formatting.RED))
+                    .append(Text.literal("Please enter an amount and a target Discord ID.").formatted(Formatting.WHITE));
+                ChatUtils.sendMsg(msg);
+                return;
+            }
+
+            if (!amountTextBox.get().matches("\\d+")) {
+                Text msg = OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal("Error: ").formatted(Formatting.RED))
+                    .append(Text.literal("Amount must be a number.").formatted(Formatting.WHITE));
+                ChatUtils.sendMsg(msg);
+                return;
+            }
+
+            if (!targetTextBox.get().matches("\\d+")) {
+                Text msg = OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal("Error: ").formatted(Formatting.RED))
+                    .append(Text.literal("Target Discord ID must be a number.").formatted(Formatting.WHITE));
+                ChatUtils.sendMsg(msg);
+                return;
+            }
+
+            JsonObject payload = new JsonObject();
+            payload.addProperty("from_discord_id", DiscordIPC.getUser().id);
+            payload.addProperty("to_discord_id", targetTextBox.get());
+            payload.addProperty("amount", amountTextBox.get());
+
+            Http.Request request = Http.post(apiUrl + "/transfer")
+                .header("Content-Type", "application/json")
+                .header("x-api-key", apiKey)
+                .bodyJson(payload.toString());
+
+            HttpResponse<JsonObject> response = request.sendJsonResponse(JsonObject.class);
+
+            if (response.statusCode() == 200) {
+                Text msg = OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal("Tokens Sent: ").formatted(Formatting.GREEN))
+                    .append(Text.literal(response.body().get("message").getAsString()).formatted(Formatting.WHITE));
+                ChatUtils.sendMsg(msg);
+            } else {
+                Text msg = OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal("Error: ").formatted(Formatting.RED))
+                    .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
+                ChatUtils.sendMsg(msg);
+            }
+        };
+        hList4.add(sendTokensButton);
+        hList4.add(amountLabel);
+        hList4.add(amountTextBox);
+        hList4.add(targetLabel);
+        hList4.add(targetTextBox);
 
         return list;
     }
