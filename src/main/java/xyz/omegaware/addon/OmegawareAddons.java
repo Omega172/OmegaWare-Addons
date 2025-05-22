@@ -1,6 +1,7 @@
 package xyz.omegaware.addon;
 
 import meteordevelopment.meteorclient.commands.Commands;
+import meteordevelopment.meteorclient.pathing.BaritoneUtils;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import xyz.omegaware.addon.commands.LinkCommand;
@@ -15,6 +16,7 @@ import meteordevelopment.meteorclient.systems.modules.Category;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import org.slf4j.Logger;
 import xyz.omegaware.addon.modules.TSRKitBotModule;
+import xyz.omegaware.addon.modules.BaritoneShit;
 
 public class OmegawareAddons extends MeteorAddon {
     public static final Logger LOG = LogUtils.getLogger();
@@ -35,6 +37,10 @@ public class OmegawareAddons extends MeteorAddon {
         Modules.get().add(new BeaconRangeModule());
         Modules.get().add(new ChatFilterModule());
         Modules.get().add(new TSRKitBotModule());
+
+        if(BaritoneUtils.IS_AVAILABLE) {
+            // Modules.get().add(new BaritoneShit());
+        }
 
         Commands.add(new LinkCommand());
 

@@ -20,21 +20,10 @@ import meteordevelopment.meteorclient.utils.player.ChatUtils;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import xyz.omegaware.addon.OmegawareAddons;
 import xyz.omegaware.addon.commands.LinkCommand;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.ProtocolException;
-import java.net.URI;
-import java.net.URL;
 import java.net.http.HttpResponse;
-import java.util.Map;
 
 public class TSRKitBotModule extends Module {
     public TSRKitBotModule() {
@@ -722,7 +711,10 @@ public class TSRKitBotModule extends Module {
 
                 Text msg = OmegawareAddons.PREFIX.copy()
                     .append(Text.literal("Tokens Sent: ").formatted(Formatting.GREEN))
-                    .append(Text.literal(response.body().get("message").getAsString()).formatted(Formatting.WHITE));
+                    .append(Text.literal(response.body().get("message").getAsString()).formatted(Formatting.WHITE))
+                    .append(Text.literal(" | ").formatted(Formatting.WHITE))
+                    .append(Text.literal("New Balance: ").formatted(Formatting.GREEN))
+                    .append(Text.literal(response.body().get("from_balance").getAsString()).formatted(Formatting.WHITE));
                 ChatUtils.sendMsg(msg);
             } else {
                 Text msg = OmegawareAddons.PREFIX.copy()
