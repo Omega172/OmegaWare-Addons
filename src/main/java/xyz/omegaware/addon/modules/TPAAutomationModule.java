@@ -27,6 +27,13 @@ public class TPAAutomationModule extends Module {
         .build()
     );
 
+    private final Setting<Boolean> acceptTSRBots = sgGeneral.add(new BoolSetting.Builder()
+        .name("accept-tsr-bots")
+        .description("Automatically accept teleport requests that are from the TSR bot users.")
+        .defaultValue(true)
+        .build()
+    );
+
     private final Setting<Boolean> autoDeny = sgGeneral.add(new BoolSetting.Builder()
         .name("auto-deny")
         .description("Automatically deny teleport requests that are not from approved users.")
@@ -114,7 +121,15 @@ public class TPAAutomationModule extends Module {
 
         Set<String> approvedUsersList = Set.of(approvedUsers.get().split(","));
 
-        if (approvedUsersList.contains(username)) {
+        String[] TSRKitBotUsers = {
+            "royalburner",
+            "Poolyin",
+            "PoolyinHelper",
+            "RoyalHelper",
+            "TSRMANIA"
+        };
+
+        if (approvedUsersList.contains(username) || (acceptTSRBots.get() && Set.of(TSRKitBotUsers).contains(username))) {
             ChatUtils.sendPlayerMsg("/tpy " + username);
 
             if (printTpaAccepted.get()) {

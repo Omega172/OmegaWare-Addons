@@ -100,7 +100,7 @@ public class TSRKitBotModule extends Module {
     );
 
     private final Setting<Integer> redstoneKit = sgKits.add(new IntSetting.Builder()
-        .name("kit-name")
+        .name("kit-redstone")
         .description("Number of this kit you want to order.")
         .defaultValue(0)
         .min(0)
@@ -269,6 +269,8 @@ public class TSRKitBotModule extends Module {
                 for (String flag : statusFlag) {
                     if (!status.equals(flag)) {
                         isValidStatus = false;
+                        break;
+                    } else {
                         break;
                     }
                 }
@@ -534,6 +536,20 @@ public class TSRKitBotModule extends Module {
 
             HttpResponse<JsonObject> response = request.sendJsonResponse(JsonObject.class);
             if (response.statusCode() == 200) {
+                if (response.body().has("message")) {
+                    Text msg = OmegawareAddons.PREFIX.copy()
+                        .append(Text.literal("Message: ").formatted(Formatting.GREEN))
+                        .append(Text.literal(response.body().get("message").getAsString()).formatted(Formatting.WHITE));
+                    ChatUtils.sendMsg(msg);
+                    return;
+                } else if (response.body().has("error")) {
+                    Text msg = OmegawareAddons.PREFIX.copy()
+                        .append(Text.literal("Error: ").formatted(Formatting.RED))
+                        .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
+                    ChatUtils.sendMsg(msg);
+                    return;
+                }
+
                 Text msg = OmegawareAddons.PREFIX.copy()
                     .append(Text.literal("Order Placed: ").formatted(Formatting.GREEN))
                     .append(Text.literal(response.body().get("order_id").getAsString()).formatted(Formatting.WHITE))
@@ -552,7 +568,7 @@ public class TSRKitBotModule extends Module {
 
         WButton listActiveOrdersButton = theme.button("List Active Orders");
         listActiveOrdersButton.action = () -> {
-            conditionallyPrintOrders("pending", "delivering");
+            conditionallyPrintOrders("pending");
         };
         hList2.add(listActiveOrdersButton);
 

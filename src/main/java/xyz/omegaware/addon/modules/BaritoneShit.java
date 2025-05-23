@@ -52,6 +52,11 @@ class BetterBuildCommand extends Command {
         }
         boolean success = baritone.getBuilderProcess().build(file.getName(), file, buildOrigin);
         logDirect(String.format("Successfully loaded schematic for building\nOrigin: %s", buildOrigin));
+
+        if (baritone.getBuilderProcess().isPaused() || baritone.getBuilderProcess().isTemporary()) {
+            // Do shit, based on the build task not being a discarded task
+            // this is temporary flag defines if a task is "resumable"
+        }
     }
 
     @Override
