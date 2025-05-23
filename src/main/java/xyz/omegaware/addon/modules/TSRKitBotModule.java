@@ -265,12 +265,10 @@ public class TSRKitBotModule extends Module {
                 String requestType = orderObj.get("request_type").getAsString();
                 String quantity = orderObj.get("quantity").getAsString();
 
-                boolean isValidStatus = true;
+                boolean isValidStatus = false;
                 for (String flag : statusFlag) {
-                    if (!status.equals(flag)) {
-                        isValidStatus = false;
-                        break;
-                    } else {
+                    if (status.equals(flag)) {
+                        isValidStatus = true;
                         break;
                     }
                 }
