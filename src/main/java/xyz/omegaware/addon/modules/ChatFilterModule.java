@@ -1,6 +1,13 @@
 package xyz.omegaware.addon.modules;
 
+import meteordevelopment.meteorclient.gui.GuiTheme;
+import meteordevelopment.meteorclient.gui.widgets.WWidget;
+import meteordevelopment.meteorclient.gui.widgets.containers.WHorizontalList;
+import meteordevelopment.meteorclient.gui.widgets.containers.WVerticalList;
+import meteordevelopment.meteorclient.gui.widgets.pressable.WButton;
 import meteordevelopment.meteorclient.settings.*;
+import meteordevelopment.meteorclient.utils.player.ChatUtils;
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import xyz.omegaware.addon.OmegawareAddons;
@@ -8,6 +15,9 @@ import meteordevelopment.meteorclient.events.game.ReceiveMessageEvent;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.orbit.EventHandler;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Set;
 
 public class ChatFilterModule extends Module {
@@ -52,6 +62,32 @@ public class ChatFilterModule extends Module {
         .build()
     );
 
+    public static Integer filteredCount = 0;
+
+    public static void loadFilteredCount() {
+        try {
+            Path path = MinecraftClient.getInstance().runDirectory.toPath().resolve("config").resolve("filtered.count");
+            if (Files.exists(path)) {
+                String content = new String(Files.readAllBytes(path)).trim();
+                if (!content.isEmpty()) {
+                    filteredCount = Integer.parseInt(content);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void saveFilteredCount() {
+        try {
+            Path path = mc.runDirectory.toPath().resolve("config").resolve("filtered.count");
+            Files.createDirectories(path.getParent());
+            Files.write(path, filteredCount.toString().getBytes());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
     @EventHandler
     private void onMessageReceive(ReceiveMessageEvent event) {
         if (!isActive() || mc.player == null) return;
@@ -59,6 +95,8 @@ public class ChatFilterModule extends Module {
 
         if ((message.startsWith("Welcome to 6b6t.org") || message.startsWith("You can vote! Type /vote") || message.startsWith("---------------------------")) && filterServerMessages.get()) {
             event.cancel();
+            filteredCount++;
+            saveFilteredCount();
             return;
         }
 
@@ -72,6 +110,8 @@ public class ChatFilterModule extends Module {
 
         if (rankedOnly.get() && !isRanked) {
             event.cancel();
+            filteredCount++;
+            saveFilteredCount();
             return;
         }
 
@@ -83,6 +123,8 @@ public class ChatFilterModule extends Module {
         Set<String> ignoredUsersList = Set.of(ignoredUsers.get().split(","));
         if (ignoredUsersList.contains(username)) {
             event.cancel();
+            filteredCount++;
+            saveFilteredCount();
             return;
         }
 
@@ -90,6 +132,8 @@ public class ChatFilterModule extends Module {
         for (String flag : messageStartFlagsList) {
             if (message.startsWith(flag)) {
                 event.cancel();
+                filteredCount++;
+                saveFilteredCount();
                 return;
             }
         }
@@ -98,6 +142,8 @@ public class ChatFilterModule extends Module {
         for (String flag : messageContainsFlagsList) {
             if (message.contains(flag)) {
                 event.cancel();
+                filteredCount++;
+                saveFilteredCount();
                 return;
             }
         }
@@ -111,7 +157,23 @@ public class ChatFilterModule extends Module {
                 .append(Text.literal(" » ").formatted(Formatting.WHITE))
                 .append(Text.literal(message).formatted(Formatting.AQUA));
             event.setMessage(msg);
-            return;
         }
+    }
+
+    @Override
+    public WWidget getWidget(GuiTheme theme) {
+        WVerticalList list = theme.verticalList();
+        WHorizontalList hList = list.add(theme.horizontalList()).expandX().widget();
+
+        WButton btn = theme.button("Print number of filtered messages");
+        btn.action = () -> {
+            Text msg = OmegawareAddons.PREFIX.copy()
+                .append(Text.literal("Total Filtered Messages: ").formatted(Formatting.GREEN))
+                .append(Text.literal(filteredCount.toString()).formatted(Formatting.WHITE));
+            ChatUtils.sendMsg(msg);
+        };
+        hList.add(btn);
+
+        return list;
     }
 }

@@ -45,6 +45,7 @@ public class OmegawareAddons extends MeteorAddon {
         Commands.add(new LinkCommand());
 
         TSRKitBotModule.apiKey = LinkCommand.loadApiKey();
+        ChatFilterModule.loadFilteredCount();
     }
 
     @Override
@@ -59,6 +60,6 @@ public class OmegawareAddons extends MeteorAddon {
 
     @Override
     public GithubRepo getRepo() {
-        return new GithubRepo("Omega172", "OmegaWare");
+        return new GithubRepo("Omega172", "OmegaWare-Addons");
     }
 }
