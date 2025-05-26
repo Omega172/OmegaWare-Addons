@@ -16,7 +16,7 @@ import meteordevelopment.meteorclient.systems.modules.Category;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import org.slf4j.Logger;
 import xyz.omegaware.addon.modules.TSRKitBotModule;
-import xyz.omegaware.addon.modules.BaritoneShit;
+import xyz.omegaware.addon.modules.ItemFrameDupeModule;
 
 public class OmegawareAddons extends MeteorAddon {
     public static final Logger LOG = LogUtils.getLogger();
@@ -37,6 +37,7 @@ public class OmegawareAddons extends MeteorAddon {
         Modules.get().add(new BeaconRangeModule());
         Modules.get().add(new ChatFilterModule());
         Modules.get().add(new TSRKitBotModule());
+        Modules.get().add(new ItemFrameDupeModule());
 
         if(BaritoneUtils.IS_AVAILABLE) {
             // Modules.get().add(new BaritoneShit());
