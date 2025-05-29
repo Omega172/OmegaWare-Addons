@@ -5,6 +5,7 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import meteordevelopment.meteorclient.commands.Command;
 import net.minecraft.command.CommandSource;
+import xyz.omegaware.addon.OmegawareAddons;
 import xyz.omegaware.addon.modules.TSRKitBotModule;
 
 import java.io.IOException;
@@ -18,11 +19,10 @@ public class LinkCommand extends Command {
 
     @Override
     public void build(LiteralArgumentBuilder<CommandSource> builder) {
-        builder.then(literal("code").then(argument("2FACode", StringArgumentType.word()).executes(context -> {
-            String argument = StringArgumentType.getString(context, "2FACode");
-            TSRKitBotModule.getIsLinked(argument);
+        builder.then(argument("2FACode", StringArgumentType.word()).executes(context -> {
+            TSRKitBotModule.getIsLinked(StringArgumentType.getString(context, "2FACode"));
             return SINGLE_SUCCESS;
-        })));
+        }));
     }
 
     public static void saveApiKey(String key) {
@@ -31,7 +31,7 @@ public class LinkCommand extends Command {
             Files.createDirectories(path.getParent());
             Files.write(path, key.getBytes());
         } catch (IOException e) {
-            e.printStackTrace();
+            OmegawareAddons.LOG.info("Failed to save API key: {}", e.getMessage());
         }
     }
 
@@ -42,7 +42,7 @@ public class LinkCommand extends Command {
                 return new String(Files.readAllBytes(path)).trim();
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            OmegawareAddons.LOG.info("Failed to load API key: {}", e.getMessage());
         }
         return null;
     }
