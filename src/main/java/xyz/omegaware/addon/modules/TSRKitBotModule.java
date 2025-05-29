@@ -2,6 +2,7 @@ package xyz.omegaware.addon.modules;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import meteordevelopment.discordipc.DiscordIPC;
 import meteordevelopment.meteorclient.gui.GuiTheme;
@@ -273,10 +274,10 @@ public class TSRKitBotModule extends Module {
                     continue; // Skip if any required field is missing
                 }
 
-                String orderId = orderObj.get("order_id").getAsString();
-                String status = orderObj.get("status").getAsString();
-                String requestType = orderObj.get("request_type").getAsString();
-                String quantity = orderObj.get("quantity").getAsString();
+                String orderId = orderObj.get("order_id").isJsonNull() ? "null" : orderObj.get("order_id").getAsString();
+                String status = orderObj.get("status").isJsonNull() ? "null" : orderObj.get("status").getAsString();
+                String requestType = orderObj.get("request_type").isJsonNull() ? "null" : orderObj.get("request_type").getAsString();
+                String quantity = orderObj.get("quantity").isJsonNull() ? "null" : orderObj.get("quantity").getAsString();
 
                 boolean isValidStatus = false;
                 for (String flag : statusFlag) {
