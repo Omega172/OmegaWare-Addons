@@ -192,6 +192,14 @@ public class TSRKitBotModule extends Module {
     public static boolean getIsLinked(String... code) {
         if (apiKey != null && !apiKey.isEmpty()) return true;
 
+        if (DiscordIPC.getUser() == null) {
+            Text msg = OmegawareAddons.PREFIX.copy()
+                .append(Text.literal("Error: ").formatted(Formatting.RED))
+                .append(Text.literal("You must have the Discord Presence module enabled").formatted(Formatting.WHITE));
+            ChatUtils.sendMsg(msg);
+            return false;
+        }
+
         JsonObject payload = new JsonObject();
         assert MinecraftClient.getInstance().player != null;
         payload.addProperty("minecraft_username", MinecraftClient.getInstance().player.getName().getString());
@@ -209,13 +217,14 @@ public class TSRKitBotModule extends Module {
                 Text msg = OmegawareAddons.PREFIX.copy()
                     .append(Text.literal("Message: ").formatted(Formatting.GREEN))
                     .append(Text.literal(message).formatted(Formatting.WHITE))
-                    .append(Text.literal("Grab the code and use the command .auth code <CODE>").formatted(Formatting.WHITE));
+                    .append(Text.literal("Grab the code and use the command .auth <CODE>").formatted(Formatting.WHITE));
                 ChatUtils.sendMsg(msg);
+                return false;
             }
-            apiKey = response.body().get("api_key").getAsString();
 
             // print api key to chat
-            if (apiKey != null) {
+            if (response.body().has("api_key")) {
+                apiKey = response.body().get("api_key").getAsString();
                 Text msg = OmegawareAddons.PREFIX.copy()
                     .append(Text.literal("Set API Key: ").formatted(Formatting.GREEN))
                     .append(Text.literal(apiKey).formatted(Formatting.WHITE));
