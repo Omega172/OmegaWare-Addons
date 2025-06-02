@@ -1,0 +1,5 @@
+1. Switch Branch
+2. ./gradlew --refresh-dependencies
+3. In Intellij, invalidate Caches / Restart
+4. In Intellij, refresh Gradle in the Gradle tool window
+5. ./gradlew clean build
