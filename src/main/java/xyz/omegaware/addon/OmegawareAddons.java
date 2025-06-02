@@ -1,6 +1,5 @@
 package xyz.omegaware.addon;
 
-import meteordevelopment.meteorclient.commands.Command;
 import meteordevelopment.meteorclient.commands.Commands;
 import meteordevelopment.meteorclient.pathing.BaritoneUtils;
 import net.minecraft.text.Text;
@@ -41,9 +40,11 @@ public class OmegawareAddons extends MeteorAddon {
         Modules.get().add(new TSRKitBotModule());
         Modules.get().add(new ItemFrameDupeModule());
 
+        /*
         if(BaritoneUtils.IS_AVAILABLE) {
-            // Modules.get().add(new BaritoneShit());
+            Modules.get().add(new BaritoneShit());
         }
+        */
 
         Commands.add(new LinkCommand());
         Commands.add(new ShulkerQueueCommand());

@@ -36,7 +36,7 @@ public class BeaconRangeModule extends Module {
         .name("shape-mode")
         .description("How the shapes are rendered.")
         .defaultValue(ShapeMode.Both)
-        .visible(() -> isActive())
+        .visible(this::isActive)
         .build()
     );
 
@@ -131,17 +131,14 @@ public class BeaconRangeModule extends Module {
                         switch (axis) {
                             case 0: // X
                                 fx = isMin ? box.minX : box.maxX;
-                                fxE = isMin ? fx + epsilon : fx - epsilon;
                                 faceRect = new Rect2D(box.minZ, box.minY, box.maxZ, box.maxY);
                                 break;
                             case 1: // Y
                                 fx = isMin ? box.minY : box.maxY;
-                                fxE = isMin ? fx + epsilon : fx - epsilon;
                                 faceRect = new Rect2D(box.minX, box.minZ, box.maxX, box.maxZ);
                                 break;
                             case 2: // Z
                                 fx = isMin ? box.minZ : box.maxZ;
-                                fxE = isMin ? fx + epsilon : fx - epsilon;
                                 faceRect = new Rect2D(box.minX, box.minY, box.maxX, box.maxY);
                                 break;
                             default: continue;
@@ -187,7 +184,7 @@ public class BeaconRangeModule extends Module {
                                     );
                                     break;
                             }
-                            if (sharesFace && overlap != null) {
+                            if (sharesFace) {
                                 List<Rect2D> next = new ArrayList<>();
                                 for (Rect2D r : visible) next.addAll(r.subtract(overlap));
                                 visible = next;

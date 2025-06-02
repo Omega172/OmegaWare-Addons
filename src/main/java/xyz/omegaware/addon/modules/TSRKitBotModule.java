@@ -2,7 +2,6 @@ package xyz.omegaware.addon.modules;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
-import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import meteordevelopment.discordipc.DiscordIPC;
 import meteordevelopment.meteorclient.gui.GuiTheme;
@@ -579,21 +578,15 @@ public class TSRKitBotModule extends Module {
         hList2.add(orderButton);
 
         WButton listActiveOrdersButton = theme.button("List Active Orders");
-        listActiveOrdersButton.action = () -> {
-            conditionallyPrintOrders("pending");
-        };
+        listActiveOrdersButton.action = () -> conditionallyPrintOrders("pending");
         hList2.add(listActiveOrdersButton);
 
         WButton listCompletedOrdersButton = theme.button("List Completed Orders");
-        listCompletedOrdersButton.action = () -> {
-            conditionallyPrintOrders("completed");
-        };
+        listCompletedOrdersButton.action = () -> conditionallyPrintOrders("completed");
         hList2.add(listCompletedOrdersButton);
 
         WButton listFailedOrdersButton = theme.button("List Failed Orders");
-        listFailedOrdersButton.action = () -> {
-            conditionallyPrintOrders("failed");
-        };
+        listFailedOrdersButton.action = () -> conditionallyPrintOrders("failed");
         hList2.add(listFailedOrdersButton);
 
         WHorizontalList hList3 = list.add(theme.horizontalList()).expandX().widget();

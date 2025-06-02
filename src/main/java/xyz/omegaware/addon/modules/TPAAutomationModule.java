@@ -82,13 +82,13 @@ public class TPAAutomationModule extends Module {
                 return;
             }
 
-            matcher = Pattern.compile("^Request from ([A-Za-z0-9_]{3,16}) accepted\\!$").matcher(message);
+            matcher = Pattern.compile("^Request from ([A-Za-z0-9_]{3,16}) accepted!$").matcher(message);
             if (matcher.matches()) {
                 event.cancel();
                 return;
             }
 
-            matcher = Pattern.compile("^Request from ([A-Za-z0-9_]{3,16}) denied\\!$").matcher(message);
+            matcher = Pattern.compile("^Request from ([A-Za-z0-9_]{3,16}) denied!$").matcher(message);
             if (matcher.matches() && autoDeny.get()) {
                 event.cancel();
                 return;

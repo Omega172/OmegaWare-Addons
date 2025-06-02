@@ -74,7 +74,7 @@ public class ChatFilterModule extends Module {
                 }
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            OmegawareAddons.LOG.info("Failed to load Filtered Message Count: {}", e.getMessage());
         }
     }
 
@@ -84,7 +84,7 @@ public class ChatFilterModule extends Module {
             Files.createDirectories(path.getParent());
             Files.write(path, filteredCount.toString().getBytes());
         } catch (IOException e) {
-            e.printStackTrace();
+            OmegawareAddons.LOG.info("Failed to save Filtered Message Count: {}", e.getMessage());
         }
     }
 
