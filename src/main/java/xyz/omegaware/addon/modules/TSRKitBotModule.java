@@ -32,7 +32,7 @@ public class TSRKitBotModule extends Module {
 
     private final SettingGroup sgKits = this.settings.createGroup("Kits", false);
 
-    private static final String apiUrl = "https://test.tsr-clan.org";
+    private static final String apiUrl = "https://req.tsr-clan.org";
 
     public static String apiKey = null;
 
