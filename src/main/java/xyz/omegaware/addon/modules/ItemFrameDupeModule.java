@@ -193,7 +193,7 @@ public class ItemFrameDupeModule extends Module {
     private boolean getItemFrame() {
         if (mc.player == null) return false;
 
-        int selectedSlot = mc.player.getInventory().selectedSlot;
+        int selectedSlot = mc.player.getInventory().getSelectedSlot();
         if (mc.player.getInventory().getStack(selectedSlot).getItem() == Items.ITEM_FRAME) return true;
 
         FindItemResult res = InvUtils.findInHotbar(Items.ITEM_FRAME);
@@ -277,7 +277,7 @@ public class ItemFrameDupeModule extends Module {
                 for (int i = 0; i < invRes.count(); i++) {
                     ItemStack itemStack = mc.player.getInventory().getStack(invRes.slot());
                     if (itemStack.toHoverableText().equals(shulkerStack.toHoverableText()) && itemStack.getItem() == shulkerStack.getItem()) {
-                        InvUtils.move().fromId(invRes.slot()).to(mc.player.getInventory().selectedSlot);
+                        InvUtils.move().fromId(invRes.slot()).to(mc.player.getInventory().getSelectedSlot());
                         return true;
                     }
                 }
@@ -305,7 +305,7 @@ public class ItemFrameDupeModule extends Module {
 
         mc.player.getInventory().getStack(invRes.slot()).getCustomName();
 
-        InvUtils.move().fromId(invRes.slot()).to(mc.player.getInventory().selectedSlot);
+        InvUtils.move().fromId(invRes.slot()).to(mc.player.getInventory().getSelectedSlot());
         return true;
     }
 
