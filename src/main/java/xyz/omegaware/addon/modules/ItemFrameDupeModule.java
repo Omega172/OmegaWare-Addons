@@ -303,8 +303,6 @@ public class ItemFrameDupeModule extends Module {
             return true;
         }
 
-        mc.player.getInventory().getStack(invRes.slot()).getCustomName();
-
         InvUtils.move().fromId(invRes.slot()).to(mc.player.getInventory().getSelectedSlot());
         return true;
     }
