@@ -47,7 +47,7 @@ public class OmegawareAddons extends MeteorAddon {
         Modules.get().add(new BetterStashFinderModule());
 
         if (BaritoneUtils.IS_AVAILABLE) {
-            Modules.get().add(new TestModule());
+            //Modules.get().add(new TestModule());
         }
 
         Commands.add(new LinkCommand());
