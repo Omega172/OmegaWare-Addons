@@ -21,6 +21,10 @@
   - List your active, pending, completed, and failed orders.
   - Cancel orders.
   - Send tokens to other users.
+- **Better Stash Finder**
+  - It is practically an exact copy of meteors stash finder
+  - Added disconnect on stash found which will also disable auto reconnect if it triggers
+  - Changed default values and increased slider maximum values
 
 ## Building
 ### Local Build
