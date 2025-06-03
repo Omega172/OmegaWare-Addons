@@ -121,7 +121,7 @@ public class ChatFilterModule extends Module {
         if (username.equals(mc.player.getNameForScoreboard())) return;
 
         Set<String> ignoredUsersList = Set.of(ignoredUsers.get().split(","));
-        if (ignoredUsersList.contains(username)) {
+        if (!ignoredUsersList.isEmpty() && ignoredUsersList.contains(username)) {
             event.cancel();
             filteredCount++;
             saveFilteredCount();
@@ -129,22 +129,26 @@ public class ChatFilterModule extends Module {
         }
 
         Set<String> messageStartFlagsList = Set.of(messageStartFlags.get().split(","));
-        for (String flag : messageStartFlagsList) {
-            if (message.startsWith(flag)) {
-                event.cancel();
-                filteredCount++;
-                saveFilteredCount();
-                return;
+        if (!messageStartFlagsList.isEmpty()) {
+            for (String flag : messageStartFlagsList) {
+                if (message.startsWith(flag)) {
+                    event.cancel();
+                    filteredCount++;
+                    saveFilteredCount();
+                    return;
+                }
             }
         }
 
         Set<String> messageContainsFlagsList = Set.of(messageContainsFlags.get().split(","));
-        for (String flag : messageContainsFlagsList) {
-            if (message.contains(flag)) {
-                event.cancel();
-                filteredCount++;
-                saveFilteredCount();
-                return;
+        if (!messageContainsFlagsList.isEmpty()) {
+            for (String flag : messageContainsFlagsList) {
+                if (message.contains(flag)) {
+                    event.cancel();
+                    filteredCount++;
+                    saveFilteredCount();
+                    return;
+                }
             }
         }
 

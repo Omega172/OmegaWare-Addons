@@ -6,9 +6,7 @@ import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import xyz.omegaware.addon.commands.LinkCommand;
 import xyz.omegaware.addon.commands.ShulkerQueueCommand;
-import xyz.omegaware.addon.modules.BeaconRangeModule;
-import xyz.omegaware.addon.modules.ChatFilterModule;
-import xyz.omegaware.addon.modules.TPAAutomationModule;
+import xyz.omegaware.addon.modules.*;
 import com.mojang.logging.LogUtils;
 import meteordevelopment.meteorclient.addons.GithubRepo;
 import meteordevelopment.meteorclient.addons.MeteorAddon;
@@ -16,8 +14,6 @@ import meteordevelopment.meteorclient.systems.hud.HudGroup;
 import meteordevelopment.meteorclient.systems.modules.Category;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import org.slf4j.Logger;
-import xyz.omegaware.addon.modules.TSRKitBotModule;
-import xyz.omegaware.addon.modules.ItemFrameDupeModule;
 
 public class OmegawareAddons extends MeteorAddon {
     public static final Logger LOG = LogUtils.getLogger();
@@ -39,6 +35,7 @@ public class OmegawareAddons extends MeteorAddon {
         Modules.get().add(new ChatFilterModule());
         Modules.get().add(new TSRKitBotModule());
         Modules.get().add(new ItemFrameDupeModule());
+        Modules.get().add(new BetterStashFinderModule());
 
         /*
         if(BaritoneUtils.IS_AVAILABLE) {
