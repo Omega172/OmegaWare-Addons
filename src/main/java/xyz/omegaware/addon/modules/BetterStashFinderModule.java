@@ -37,7 +37,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-// A straight-up copy of Meteors StashFinder, but with one change.
+// A straight-up copy of Meteors StashFinder, but with some slight changes.
 public class BetterStashFinderModule extends Module {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
@@ -53,9 +53,10 @@ public class BetterStashFinderModule extends Module {
     private final Setting<Integer> minimumStorageCount = sgGeneral.add(new IntSetting.Builder()
         .name("minimum-storage-count")
         .description("The minimum amount of storage blocks in a chunk to record the chunk.")
-        .defaultValue(4)
+        .defaultValue(50)
         .min(1)
         .sliderMin(1)
+        .sliderMax(1024)
         .build()
     );
 
@@ -150,6 +151,8 @@ public class BetterStashFinderModule extends Module {
                 }
 
                 MutableText text = Text.literal(String.format("%s[%s%s%s] %s", Formatting.GRAY, Formatting.BLUE, OmegawareAddons.PREFIX.getString(), Formatting.GRAY, Formatting.RED) + String.format("Found stash at %s, %s.", chunk.x, chunk.z)).append("\n");
+
+                disconnectOnStashFound.set(false); // Disable the setting to prevent infinite disconnects
 
                 ClientPlayNetworkHandler networkHandler = mc.getNetworkHandler();
                 if (networkHandler != null) {
