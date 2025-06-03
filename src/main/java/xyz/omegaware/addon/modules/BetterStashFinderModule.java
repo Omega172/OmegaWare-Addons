@@ -95,7 +95,7 @@ public class BetterStashFinderModule extends Module {
     public List<StashFinder.Chunk> chunks = new ArrayList<>();
 
     public BetterStashFinderModule() {
-        super(Categories.World, "better-stash-finder", "Searches loaded chunks for storage blocks. Saves to <your minecraft folder>/meteor-client");
+        super(OmegawareAddons.CATEGORY, "better-stash-finder", "Searches loaded chunks for storage blocks. Saves to <your minecraft folder>/meteor-client");
     }
 
     @Override
