@@ -15,7 +15,7 @@
   - Displays the range of powered beacons.
   - The range box's color can be changed.
   - There is a setting to cull overlapping sections of range boxes.
-- **TSR Clan KitBot API**:
+- **TSR Clan KitBot API**: Disabled for now API not ready
   - Check your token balance.
   - Order kits
   - List your active, pending, completed, and failed orders.
