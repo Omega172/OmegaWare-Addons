@@ -118,7 +118,7 @@ public class TestModule extends Module implements AbstractGameEventListener {
             return;
         }
 
-        if (message.matches("^(\\d+)x Block\\{minecraft:([a-z0-9_]+)}(\\[axis=[xy]\\])?$")) { // Missing item message
+        if (message.matches("^(\\d+)x Block\\{minecraft:([a-z0-9_]+)}(\\[axis=[xy]])?$")) { // Missing item message
             String[] parts = message.split(" ");
 
             String blockMessage = parts[1];
