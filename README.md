@@ -15,12 +15,19 @@
   - Displays the range of powered beacons.
   - The range box's color can be changed.
   - There is a setting to cull overlapping sections of range boxes.
-- **TSR Clan KitBot API**:
+- **TSR Clan KitBot API**: Disabled for now API not ready
   - Check your token balance.
   - Order kits
   - List your active, pending, completed, and failed orders.
   - Cancel orders.
   - Send tokens to other users.
+- **6B6T Item Frame Dupe**
+  - Shamelessly taken from https://github.com/kybe236/rusher-auto-item-frame-dupe/
+  - With some slight bug fixes and improvements
+- **Better Stash Finder**
+  - It is practically an exact copy of meteors stash finder
+  - Added disconnect on stash found which will also disable auto reconnect if it triggers
+  - Changed default values and increased slider maximum values
 
 ## Building
 ### Local Build

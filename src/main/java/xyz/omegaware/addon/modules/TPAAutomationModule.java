@@ -69,6 +69,20 @@ public class TPAAutomationModule extends Module {
         .build()
     );
 
+    private static final Pattern TPA_MESSAGE_PATTERN = Pattern.compile("^Type /tpy ([A-Za-z0-9_]{3,16}) to accept or /tpn [A-Za-z0-9_]{3,16} to deny\\.$");
+    private static final Pattern TPA_ACCEPTED_PATTERN = Pattern.compile("^Request from ([A-Za-z0-9_]{3,16}) accepted!$");
+    private static final Pattern TPA_DENIED_PATTERN = Pattern.compile("^Request from ([A-Za-z0-9_]{3,16}) denied!$");
+    private static final Pattern TPA_REQUEST_PATTERN = Pattern.compile("^([A-Za-z0-9_]{3,16}) wants to teleport to you\\.$");
+
+    @Override
+    public void onActivate() {
+        if (!OmegawareAddons.getCurrentServerAddress().equals("play.6b6t.org")) {
+            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
+                .append(Text.literal("The TPA Automations module is only intended for use on 6b6t.").formatted(Formatting.RED)));
+            this.toggle();
+        }
+    }
+
     @EventHandler
     private void onMessageReceive(ReceiveMessageEvent event) {
         if (!isActive() || mc.player == null) return;
@@ -76,26 +90,26 @@ public class TPAAutomationModule extends Module {
         String message = event.getMessage().getString();
 
         if (filterTpaMessages.get()) {
-            Matcher matcher = Pattern.compile("^Type /tpy ([A-Za-z0-9_]{3,16}) to accept or /tpn \\1 to deny\\.$").matcher(message);
+            Matcher matcher = TPA_MESSAGE_PATTERN.matcher(message);
             if (matcher.matches()) {
                 event.cancel();
                 return;
             }
 
-            matcher = Pattern.compile("^Request from ([A-Za-z0-9_]{3,16}) accepted!$").matcher(message);
+            matcher = TPA_ACCEPTED_PATTERN.matcher(message);
             if (matcher.matches()) {
                 event.cancel();
                 return;
             }
 
-            matcher = Pattern.compile("^Request from ([A-Za-z0-9_]{3,16}) denied!$").matcher(message);
+            matcher = TPA_DENIED_PATTERN.matcher(message);
             if (matcher.matches() && autoDeny.get()) {
                 event.cancel();
                 return;
             }
         }
 
-        Matcher matcher = Pattern.compile("^([A-Za-z0-9_]{3,16}) wants to teleport to you\\.$").matcher(message);
+        Matcher matcher = TPA_REQUEST_PATTERN.matcher(message);
         if (!matcher.matches()) return;
 
         String username = matcher.group(1);

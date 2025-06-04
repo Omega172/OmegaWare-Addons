@@ -1,8 +1,6 @@
 package xyz.omegaware.addon.modules;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
+import com.google.gson.*;
 import meteordevelopment.discordipc.DiscordIPC;
 import meteordevelopment.meteorclient.gui.GuiTheme;
 import meteordevelopment.meteorclient.gui.widgets.WLabel;
@@ -21,9 +19,10 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import xyz.omegaware.addon.OmegawareAddons;
-import xyz.omegaware.addon.commands.LinkCommand;
 
+import java.io.*;
 import java.net.http.HttpResponse;
+import java.nio.file.Files;
 
 public class TSRKitBotModule extends Module {
     public TSRKitBotModule() {
@@ -34,7 +33,7 @@ public class TSRKitBotModule extends Module {
 
     private static final String apiUrl = "https://req.tsr-clan.org";
 
-    public static String apiKey = null;
+    private static String apiKey = null;
 
     private final Setting<Integer> pvpKit = sgKits.add(new IntSetting.Builder()
         .name("kit-pvp")
@@ -230,7 +229,7 @@ public class TSRKitBotModule extends Module {
                     .append(Text.literal(apiKey).formatted(Formatting.WHITE));
                 ChatUtils.sendMsg(msg);
 
-                LinkCommand.saveApiKey(apiKey);
+                saveApiKey(apiKey);
             } else {
                 Text msg = OmegawareAddons.PREFIX.copy()
                     .append(Text.literal("Error: ").formatted(Formatting.RED))
@@ -307,6 +306,22 @@ public class TSRKitBotModule extends Module {
                 .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
             ChatUtils.sendMsg(msg);
         }
+    }
+
+    private boolean loaded = false;
+
+    @Override
+    public void onActivate() {
+        if (!OmegawareAddons.getCurrentServerAddress().equals("play.6b6t.org")) {
+            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
+                .append(Text.literal("The TSR Clan KitBot API module is only intended for use on 6b6t.").formatted(Formatting.RED)));
+            this.toggle();
+            return;
+        }
+
+        if (loaded) return;
+        apiKey = loadApiKey();
+        loaded = true;
     }
 
     @Override
@@ -751,5 +766,44 @@ public class TSRKitBotModule extends Module {
         hList4.add(targetTextBox);
 
         return list;
+    }
+
+    private static void saveApiKey(String key) {
+        File configFile = OmegawareAddons.GetConfigFile("tsr-kitbot-api", "kitbot.key");
+        try {
+            //noinspection ResultOfMethodCallIgnored
+            configFile.getParentFile().mkdirs();
+
+            Writer writer = new FileWriter(configFile);
+            JsonObject payload = new JsonObject();
+            payload.addProperty("api_key", key);
+            payload.addProperty("last_updated", System.currentTimeMillis());
+            writer.append(payload.toString());
+            writer.close();
+        } catch (Exception ignored) {
+            OmegawareAddons.LOG.error("Failed to save API Key to {}", configFile.toPath());
+        }
+    }
+
+    private String loadApiKey() {
+        File configFile = OmegawareAddons.GetConfigFile("tsr-kitbot-api", "kitbot.key");
+        if (!configFile.exists()) {
+            OmegawareAddons.LOG.warn("{} not found!", configFile.toPath());
+            return null;
+        }
+
+        try {
+            String content = Files.readString(configFile.toPath());
+            JsonObject payload = JsonParser.parseString(content).getAsJsonObject();
+            if (payload.has("api_key")) {
+                return payload.get("api_key").getAsString();
+            } else {
+                OmegawareAddons.LOG.warn("No API key found!");
+                return null;
+            }
+        } catch (IOException e) {
+            OmegawareAddons.LOG.error("Failed to load API key: {}", e.getMessage());
+            return null;
+        }
     }
 }
