@@ -5,6 +5,8 @@ import baritone.api.IBaritone;
 import baritone.api.event.events.PathEvent;
 import baritone.api.event.listener.AbstractGameEventListener;
 import baritone.api.pathing.goals.GoalGetToBlock;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import meteordevelopment.meteorclient.events.entity.player.InteractBlockEvent;
@@ -23,7 +25,6 @@ import meteordevelopment.meteorclient.settings.Setting;
 import meteordevelopment.meteorclient.settings.SettingGroup;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.utils.player.ChatUtils;
-import meteordevelopment.meteorclient.utils.player.InvUtils;
 import meteordevelopment.meteorclient.utils.player.SlotUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.block.entity.*;
@@ -34,14 +35,9 @@ import net.minecraft.registry.Registries;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
-import net.minecraft.util.ActionResult;
 import net.minecraft.util.Formatting;
-import net.minecraft.util.Hand;
 import net.minecraft.util.Identifier;
-import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.Vec3d;
 import xyz.omegaware.addon.OmegawareAddons;
 
 import java.io.File;
@@ -49,14 +45,13 @@ import java.io.FileWriter;
 import java.io.Writer;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Pattern;
-
-import static net.minecraft.client.render.model.json.ModelVariantMap.GSON;
 
 public class TestModule extends Module implements AbstractGameEventListener {
     public TestModule() {
         super(OmegawareAddons.CATEGORY, "Test Module", "This is a test module for OmegaWare Addons.");
     }
+
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private final SettingGroup sgGeneral = this.settings.getDefaultGroup();
 
