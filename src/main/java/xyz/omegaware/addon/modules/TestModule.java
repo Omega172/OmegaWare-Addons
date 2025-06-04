@@ -344,7 +344,8 @@ public class TestModule extends Module implements AbstractGameEventListener {
         if (mc.world == null || linkedStorages.isEmpty()) return;
 
         linkedStorages.removeIf(storage -> {
-            if (!mc.world.isPosLoaded(storage.blockPos)) return false;
+            //noinspection deprecation
+            if (!mc.world.isPosLoaded(storage.blockPos.getX(), storage.blockPos.getZ())) return false;
             return mc.world.getBlockState(storage.blockPos).isAir() || mc.world.getBlockEntity(storage.blockPos) == null;
         });
     }
