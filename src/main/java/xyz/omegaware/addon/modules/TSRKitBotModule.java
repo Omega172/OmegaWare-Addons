@@ -312,6 +312,13 @@ public class TSRKitBotModule extends Module {
 
     @Override
     public void onActivate() {
+        if (!OmegawareAddons.getCurrentServerAddress().equals("play.6b6t.org")) {
+            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
+                .append(Text.literal("The TSR Clan KitBot API module is only intended for use on 6b6t.").formatted(Formatting.RED)));
+            this.toggle();
+            return;
+        }
+
         if (loaded) return;
         apiKey = loadApiKey();
         loaded = true;

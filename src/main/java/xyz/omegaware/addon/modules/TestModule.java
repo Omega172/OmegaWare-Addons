@@ -49,6 +49,7 @@ import java.io.FileWriter;
 import java.io.Writer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 
 import static net.minecraft.client.render.model.json.ModelVariantMap.GSON;
 
@@ -102,6 +103,8 @@ public class TestModule extends Module implements AbstractGameEventListener {
 
     private boolean baritoneActive =false;
 
+    private String buildCommand = "";
+
     @EventHandler
     private void onMessageReceive(ReceiveMessageEvent event) {
         if (!isActive()) return;
@@ -109,10 +112,30 @@ public class TestModule extends Module implements AbstractGameEventListener {
 
         if (!message.toLowerCase().startsWith("[baritone]")) return;
 
-        ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy().append(Text.literal("Baritone: ").formatted(Formatting.GREEN))
-            .append(Text.literal(message.substring(10)).formatted(Formatting.WHITE)));
+        message = message.substring(10).trim();
 
-        // parse the baritone messages to determine if it needs materials
+        if (message.toLowerCase().startsWith("build")) {
+            buildCommand = message;
+            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
+                .append(Text.literal("Build command captured: ").formatted(Formatting.GREEN))
+                .append(Text.literal(buildCommand).formatted(Formatting.WHITE)));
+            event.cancel();
+            return;
+        }
+
+        if (message.matches("^(\\d+)x Block\\{minecraft:([a-z0-9_]+)}(\\[axis=[xy]\\])?$")) { // Missing item message
+            String[] parts = message.split(" ");
+
+            String blockMessage = parts[1];
+            String blockName = blockMessage.substring(blockMessage.indexOf(':') + 1);
+
+            int endIndex = blockName.indexOf('}');
+            if (endIndex != -1) {
+                blockName = blockName.substring(0, endIndex);
+            }
+
+            ChatUtils.sendMsg(Text.literal(blockName));
+        }
     }
 
     @Override

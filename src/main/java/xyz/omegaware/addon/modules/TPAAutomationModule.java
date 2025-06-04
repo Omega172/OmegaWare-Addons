@@ -74,6 +74,15 @@ public class TPAAutomationModule extends Module {
     private static final Pattern TPA_DENIED_PATTERN = Pattern.compile("^Request from ([A-Za-z0-9_]{3,16}) denied!$");
     private static final Pattern TPA_REQUEST_PATTERN = Pattern.compile("^([A-Za-z0-9_]{3,16}) wants to teleport to you\\.$");
 
+    @Override
+    public void onActivate() {
+        if (!OmegawareAddons.getCurrentServerAddress().equals("play.6b6t.org")) {
+            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
+                .append(Text.literal("The TPA Automations module is only intended for use on 6b6t.").formatted(Formatting.RED)));
+            this.toggle();
+        }
+    }
+
     @EventHandler
     private void onMessageReceive(ReceiveMessageEvent event) {
         if (!isActive() || mc.player == null) return;

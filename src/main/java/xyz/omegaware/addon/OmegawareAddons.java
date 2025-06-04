@@ -4,6 +4,8 @@ import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.commands.Commands;
 import meteordevelopment.meteorclient.pathing.BaritoneUtils;
 import meteordevelopment.meteorclient.utils.Utils;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.network.ServerInfo;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import xyz.omegaware.addon.commands.LinkCommand;
@@ -29,6 +31,19 @@ public class OmegawareAddons extends MeteorAddon {
         return new File(new File(new File(new File(MeteorClient.FOLDER, "omegaware"), key), Utils.getFileWorldName()), filename);
     }
 
+    public static String getCurrentServerAddress() {
+        ServerInfo server = MinecraftClient.getInstance().getCurrentServerEntry();
+        if (server == null) {
+            return "singleplayer";
+        }
+
+        if (server.address == null || server.address.isEmpty()) {
+            return "unknown";
+        }
+
+        return MinecraftClient.getInstance().getCurrentServerEntry().address;
+    }
+
     public static final Text PREFIX = Text.empty()
         .append(Text.literal("[").formatted(Formatting.WHITE))
         .append(Text.literal("OmegaWare").formatted(Formatting.AQUA))
@@ -42,7 +57,7 @@ public class OmegawareAddons extends MeteorAddon {
         Modules.get().add(new TPAAutomationModule());
         Modules.get().add(new BeaconRangeModule());
         Modules.get().add(new ChatFilterModule());
-        Modules.get().add(new TSRKitBotModule());
+        //Modules.get().add(new TSRKitBotModule());
         Modules.get().add(new ItemFrameDupeModule());
         Modules.get().add(new BetterStashFinderModule());
 
