@@ -29,12 +29,12 @@ jobs:
               run: |
                   mod_version=$(grep "^mod_version=" gradle.properties | cut -d'=' -f2)
                   echo "mod_version=$mod_version" >> $GITHUB_OUTPUT
-                  echo "mc_version=1.21.4" >> $GITHUB_OUTPUT
+                  echo "mc_version=1.21.1" >> $GITHUB_OUTPUT
 
             - name: Create GitHub Release Draft
               uses: softprops/action-gh-release@v2
               with:
-                  tag_name: v${{ steps.get_versions.outputs.mod_version }}
+                  tag_name: v${{ steps.get_versions.outputs.mod_version }}-mc${{ steps.get_versions.outputs.mc_version }}
                   name: Release v${{ steps.get_versions.outputs.mod_version }} (MC ${{ steps.get_versions.outputs.mc_version }})
                   body: |
                       Draft release for mod version ${{ steps.get_versions.outputs.mod_version }} and Minecraft ${{ steps.get_versions.outputs.mc_version }}.
