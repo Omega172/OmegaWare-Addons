@@ -6,6 +6,7 @@ import meteordevelopment.meteorclient.settings.IntSetting;
 import meteordevelopment.meteorclient.settings.Setting;
 import meteordevelopment.meteorclient.settings.SettingGroup;
 import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.meteorclient.utils.player.ChatUtils;
 import meteordevelopment.meteorclient.utils.player.FindItemResult;
 import meteordevelopment.meteorclient.utils.player.InvUtils;
 import meteordevelopment.orbit.EventHandler;
@@ -14,6 +15,8 @@ import net.minecraft.entity.decoration.ItemFrameEntity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
+import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
@@ -109,6 +112,16 @@ public class ItemFrameDupeModule extends Module {
     int shulkerQueueIndex = 0;
     int currentRotationCount = 0;
     int forceDelay = 0;
+
+    @Override
+    public void onActivate() {
+        if (!OmegawareAddons.getCurrentServerAddress().equals("play.6b6t.org")) {
+            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
+                .append(Text.literal("The 6B6T Item Frame Dupe module is only intended for use on 6b6t.").formatted(Formatting.RED)));
+            this.toggle();
+            return;
+        }
+    }
 
     @EventHandler
     private void onTickPost(TickEvent.Post event) {

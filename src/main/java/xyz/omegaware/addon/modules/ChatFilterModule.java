@@ -1,5 +1,7 @@
 package xyz.omegaware.addon.modules;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import meteordevelopment.meteorclient.gui.GuiTheme;
 import meteordevelopment.meteorclient.gui.widgets.WWidget;
 import meteordevelopment.meteorclient.gui.widgets.containers.WHorizontalList;
@@ -7,7 +9,6 @@ import meteordevelopment.meteorclient.gui.widgets.containers.WVerticalList;
 import meteordevelopment.meteorclient.gui.widgets.pressable.WButton;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.utils.player.ChatUtils;
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import xyz.omegaware.addon.OmegawareAddons;
@@ -15,9 +16,11 @@ import meteordevelopment.meteorclient.events.game.ReceiveMessageEvent;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.orbit.EventHandler;
 
+import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
+import java.io.Writer;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Set;
 
 public class ChatFilterModule extends Module {
@@ -62,30 +65,57 @@ public class ChatFilterModule extends Module {
         .build()
     );
 
-    public static Integer filteredCount = 0;
+    private static Integer filteredCount = 0;
+    private boolean loaded = false;
 
-    public static void loadFilteredCount() {
+    private void saveFilteredCount() {
+        File configFile = OmegawareAddons.GetConfigFile("chat-filter", "filtered.count");
+
         try {
-            Path path = MinecraftClient.getInstance().runDirectory.toPath().resolve("config").resolve("filtered.count");
-            if (Files.exists(path)) {
-                String content = new String(Files.readAllBytes(path)).trim();
-                if (!content.isEmpty()) {
-                    filteredCount = Integer.parseInt(content);
-                }
-            }
-        } catch (IOException e) {
-            OmegawareAddons.LOG.info("Failed to load Filtered Message Count: {}", e.getMessage());
+            //noinspection ResultOfMethodCallIgnored
+            configFile.getParentFile().mkdirs();
+
+            Writer writer = new FileWriter(configFile);
+            JsonObject payload = new JsonObject();
+            payload.addProperty("count", filteredCount);
+            writer.append(payload.toString());
+            writer.close();
+        } catch (Exception ignored) {
+            OmegawareAddons.LOG.info("Failed to save Filtered Message count to {}", configFile.toPath());
         }
     }
 
-    private void saveFilteredCount() {
-        try {
-            Path path = mc.runDirectory.toPath().resolve("config").resolve("filtered.count");
-            Files.createDirectories(path.getParent());
-            Files.write(path, filteredCount.toString().getBytes());
-        } catch (IOException e) {
-            OmegawareAddons.LOG.info("Failed to save Filtered Message Count: {}", e.getMessage());
+    public void loadFilteredCount() {
+        if (loaded) return;
+
+        File configFile = OmegawareAddons.GetConfigFile("chat-filter", "filtered.count");
+        if (!configFile.exists()) {
+            OmegawareAddons.LOG.warn("{} not found!", configFile.toPath());
+            return;
         }
+
+        try {
+            String content = Files.readString(configFile.toPath());
+            JsonObject payload = JsonParser.parseString(content).getAsJsonObject();
+            if (payload.has("count")) {
+                filteredCount = payload.get("count").getAsInt();
+                loaded = true;
+            }
+        } catch (IOException e) {
+            OmegawareAddons.LOG.error("Failed to load Filtered Message count from {}: {}", configFile.toPath(), e.getMessage());
+        }
+    }
+
+    @Override
+    public void onActivate() {
+        if (!OmegawareAddons.getCurrentServerAddress().equals("play.6b6t.org")) {
+            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
+                .append(Text.literal("The 6B6T Chat Filter module is only intended for use on 6b6t.").formatted(Formatting.RED)));
+            this.toggle();
+            return;
+        }
+
+        loadFilteredCount();
     }
 
     @EventHandler
@@ -121,7 +151,7 @@ public class ChatFilterModule extends Module {
         if (username.equals(mc.player.getNameForScoreboard())) return;
 
         Set<String> ignoredUsersList = Set.of(ignoredUsers.get().split(","));
-        if (ignoredUsersList.contains(username)) {
+        if (!ignoredUsersList.isEmpty() && ignoredUsersList.contains(username)) {
             event.cancel();
             filteredCount++;
             saveFilteredCount();
@@ -129,22 +159,26 @@ public class ChatFilterModule extends Module {
         }
 
         Set<String> messageStartFlagsList = Set.of(messageStartFlags.get().split(","));
-        for (String flag : messageStartFlagsList) {
-            if (message.startsWith(flag)) {
-                event.cancel();
-                filteredCount++;
-                saveFilteredCount();
-                return;
+        if (!messageStartFlagsList.isEmpty()) {
+            for (String flag : messageStartFlagsList) {
+                if (message.startsWith(flag)) {
+                    event.cancel();
+                    filteredCount++;
+                    saveFilteredCount();
+                    return;
+                }
             }
         }
 
         Set<String> messageContainsFlagsList = Set.of(messageContainsFlags.get().split(","));
-        for (String flag : messageContainsFlagsList) {
-            if (message.contains(flag)) {
-                event.cancel();
-                filteredCount++;
-                saveFilteredCount();
-                return;
+        if (!messageContainsFlagsList.isEmpty()) {
+            for (String flag : messageContainsFlagsList) {
+                if (message.contains(flag)) {
+                    event.cancel();
+                    filteredCount++;
+                    saveFilteredCount();
+                    return;
+                }
             }
         }
 
