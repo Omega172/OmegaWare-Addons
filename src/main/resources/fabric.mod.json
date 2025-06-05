@@ -21,7 +21,8 @@
     "omegaware-addons.mixins.json"
   ],
   "custom": {
-    "meteor-client:color": "0,255,255"
+    "meteor-client:color": "0,255,255",
+    "omegaware-addons:commit": "${commit}"
   },
   "depends": {
     "java": ">=21",

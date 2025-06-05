@@ -41,9 +41,12 @@ dependencies {
 
 tasks {
     processResources {
+        val commit = project.findProperty("commit")?.toString() ?: ""
+
         val propertyMap = mapOf(
             "version" to project.version,
             "mc_version" to minecraftVersion,
+            "commit" to commit,
         )
 
         inputs.properties(propertyMap)
