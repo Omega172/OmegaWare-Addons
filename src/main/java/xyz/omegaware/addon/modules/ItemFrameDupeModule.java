@@ -119,7 +119,6 @@ public class ItemFrameDupeModule extends Module {
             ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
                 .append(Text.literal("The 6B6T Item Frame Dupe module is only intended for use on 6b6t.").formatted(Formatting.RED)));
             this.toggle();
-            return;
         }
     }
 
