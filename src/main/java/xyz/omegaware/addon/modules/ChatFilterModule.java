@@ -21,6 +21,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.Writer;
 import java.nio.file.Files;
+import java.util.List;
 import java.util.Set;
 
 public class ChatFilterModule extends Module {
@@ -29,6 +30,9 @@ public class ChatFilterModule extends Module {
     }
 
     private final SettingGroup sgGeneral = this.settings.getDefaultGroup();
+    private final SettingGroup sgIgnoredUsers = this.settings.createGroup("Ignored Users");
+    private final SettingGroup sgMessageStartFlags = this.settings.createGroup("Message Start Flags");
+    private final SettingGroup sgMessageContains = this.settings.createGroup("Message Contains");
 
     private final Setting<Boolean> rankedOnly = sgGeneral.add(new BoolSetting.Builder()
         .name("ranked-users-only")
@@ -44,29 +48,58 @@ public class ChatFilterModule extends Module {
         .build()
     );
 
-    private final Setting<String> ignoredUsers = sgGeneral.add(new StringSetting.Builder()
-        .name("filtered-users")
-        .description("A comma-separated list of users to filter.")
-        .defaultValue("user1,user2,user3")
+    private final Setting<Boolean> toggleIgnoredUsers = sgIgnoredUsers.add(new BoolSetting.Builder()
+        .name("toggle-ignored-users")
+        .description("Toggle ignoring of users.")
+        .defaultValue(true)
         .build()
     );
 
-    private final Setting<String> messageStartFlags = sgGeneral.add(new StringSetting.Builder()
+    private final Setting<List<String>> ignoredUsers = sgIgnoredUsers.add(new StringListSetting.Builder()
+        .name("filtered-users-list")
+        .description("A list of users to filter.")
+        .defaultValue(List.of("user1", "user2", "user3"))
+        .visible(toggleIgnoredUsers::get)
+        .build()
+    );
+
+    private final Setting<Boolean> toggleMessageStartFlags = sgMessageStartFlags.add(new BoolSetting.Builder()
+        .name("toggle-message-start-flags")
+        .description("Toggle filtering of messages that start with a selected flag.")
+        .defaultValue(true)
+        .build()
+    );
+
+    private final Setting<List<String>> messageStartFlags = sgMessageStartFlags.add(new StringListSetting.Builder()
         .name("message-start-flags")
-        .description("A comma-separated list of flags that will get a message filtered if they are at the start of a players message.")
-        .defaultValue("!,$,%,#,.,?")
+        .description("A list of flags that will get a message filtered if they are at the start of a players message.")
+        .defaultValue(List.of("!", "$", "%", "#", ".", "?"))
+        .visible(toggleMessageStartFlags::get)
         .build()
     );
 
-    private final Setting<String> messageContainsFlags = sgGeneral.add(new StringSetting.Builder()
+    private final Setting<Boolean> toggleMessageContainsFlags = sgMessageContains.add(new BoolSetting.Builder()
+        .name("toggle-message-contains-flags")
+        .description("Toggle filtering of messages that contain a selected flag.")
+        .defaultValue(true)
+        .build()
+    );
+
+    private final Setting<List<String>> messageContainsFlags = sgMessageContains.add(new StringListSetting.Builder()
         .name("message-contains-flags")
-        .description("A comma-separated list of flags that will get a message filtered if they are contained in a players message.")
-        .defaultValue("discord,.gg,https://,aternos")
+        .description("A list of flags that will get a message filtered if they are contained in a players message.")
+        .defaultValue(List.of("discord", ".gg", "https://", "aternos"))
+        .visible(toggleMessageContainsFlags::get)
         .build()
     );
 
     private static Integer filteredCount = 0;
     private boolean loaded = false;
+
+    private void incrementFilteredCount() {
+        filteredCount++;
+        saveFilteredCount();
+    }
 
     private void saveFilteredCount() {
         File configFile = OmegawareAddons.GetConfigFile("chat-filter", "filtered.count");
@@ -125,12 +158,14 @@ public class ChatFilterModule extends Module {
 
         if ((message.startsWith("Welcome to 6b6t.org") || message.startsWith("You can vote! Type /vote") || message.startsWith("---------------------------")) && filterServerMessages.get()) {
             event.cancel();
-            filteredCount++;
-            saveFilteredCount();
+            incrementFilteredCount();
             return;
         }
 
         if (!message.contains("»")) return;
+
+        String username = message.split(" » ")[0];
+        if (username.equals(mc.player.getNameForScoreboard())) return;
 
         boolean isRanked = false;
         if (message.startsWith("[")) {
@@ -140,43 +175,33 @@ public class ChatFilterModule extends Module {
 
         if (rankedOnly.get() && !isRanked) {
             event.cancel();
-            filteredCount++;
-            saveFilteredCount();
+            incrementFilteredCount();
             return;
         }
 
-        String username = message.split(" » ")[0];
+        if (toggleIgnoredUsers.get() && !ignoredUsers.get().isEmpty() && ignoredUsers.get().contains(username)) {
+            event.cancel();
+            incrementFilteredCount();
+            return;
+        }
+
         message = message.substring(message.indexOf("»") + 1).trim();
 
-        if (username.equals(mc.player.getNameForScoreboard())) return;
-
-        Set<String> ignoredUsersList = Set.of(ignoredUsers.get().split(","));
-        if (!ignoredUsersList.isEmpty() && ignoredUsersList.contains(username)) {
-            event.cancel();
-            filteredCount++;
-            saveFilteredCount();
-            return;
-        }
-
-        Set<String> messageStartFlagsList = Set.of(messageStartFlags.get().split(","));
-        if (!messageStartFlagsList.isEmpty()) {
-            for (String flag : messageStartFlagsList) {
+        if (toggleMessageStartFlags.get() && !messageStartFlags.get().isEmpty()) {
+            for (String flag : messageStartFlags.get()) {
                 if (message.startsWith(flag)) {
                     event.cancel();
-                    filteredCount++;
-                    saveFilteredCount();
+                    incrementFilteredCount();
                     return;
                 }
             }
         }
 
-        Set<String> messageContainsFlagsList = Set.of(messageContainsFlags.get().split(","));
-        if (!messageContainsFlagsList.isEmpty()) {
-            for (String flag : messageContainsFlagsList) {
+        if (toggleMessageContainsFlags.get() && !messageContainsFlags.get().isEmpty()){
+            for (String flag : messageContainsFlags.get()) {
                 if (message.contains(flag)) {
                     event.cancel();
-                    filteredCount++;
-                    saveFilteredCount();
+                    incrementFilteredCount();
                     return;
                 }
             }
