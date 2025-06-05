@@ -23,11 +23,17 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew build -Pcommit=${{ github.sha }}
 
+      - name: Get mod and Minecraft version
+        id: get_version
+        run: |
+          mod_version=$(grep "^mod_version=" gradle.properties | cut -d'=' -f2)
+          echo "mod_version=$mod_version" >> $GITHUB_OUTPUT
+
       - name: Release
         uses: marvinpinto/action-automatic-releases@latest
         with:
           repo_token: '${{ secrets.PAT_TOKEN }}'
-          automatic_release_tag: snapshot
+          automatic_release_tag: snapshot-${{ steps.get_versions.outputs.mod_version }}
           prerelease: true
           title: Dev Build
           files: |
