@@ -44,6 +44,11 @@ public class OmegawareAddons extends MeteorAddon {
         return MinecraftClient.getInstance().getCurrentServerEntry().address;
     }
 
+    public static boolean is6B6T() {
+        String serverAddress = getCurrentServerAddress();
+        return serverAddress.equals("6b6t.org") || serverAddress.equals("play.6b6t.org");
+    }
+
     public static final Text PREFIX = Text.empty()
         .append(Text.literal("[").formatted(Formatting.WHITE))
         .append(Text.literal("OmegaWare").formatted(Formatting.AQUA))
