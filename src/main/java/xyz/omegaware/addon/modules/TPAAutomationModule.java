@@ -9,6 +9,7 @@ import meteordevelopment.meteorclient.events.game.ReceiveMessageEvent;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.orbit.EventHandler;
 
+import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -18,12 +19,23 @@ public class TPAAutomationModule extends Module {
         super(OmegawareAddons.CATEGORY, "TPA-automations", "A module that automatically accepts or denies teleport requests based on a list of approved players.");
     }
 
-    private final SettingGroup sgGeneral = this.settings.getDefaultGroup();
+    private final SettingGroup sgApprovedUsers = this.settings.createGroup("Approved Users");
+    private final SettingGroup sgGeneral = this.settings.createGroup("General");
 
-    private final Setting<String> approvedUsers = sgGeneral.add(new StringSetting.Builder()
-        .name("approved-users")
-        .description("A comma-separated list of approved users.")
-        .defaultValue("user1,user2,user3")
+    String[] TSRKitBotUsers = {
+        "royalburner",
+        "Poolyin",
+        "PoolyinHelper",
+        "RoyalHelper",
+        "TSRMANIA",
+        "WomenAreScary",
+        "ElectricCallboy"
+    };
+
+    private final Setting<List<String>> approvedUsers = sgApprovedUsers.add(new StringListSetting.Builder()
+        .name("approved-users-list")
+        .description("A list of users to filter.")
+        .defaultValue(List.of("user1", "user2", "user3"))
         .build()
     );
 
@@ -133,17 +145,7 @@ public class TPAAutomationModule extends Module {
             .append(Text.literal(username).formatted(Formatting.WHITE))
             .append(Text.literal("!").formatted(Formatting.WHITE));
 
-        Set<String> approvedUsersList = Set.of(approvedUsers.get().split(","));
-
-        String[] TSRKitBotUsers = {
-            "royalburner",
-            "Poolyin",
-            "PoolyinHelper",
-            "RoyalHelper",
-            "TSRMANIA"
-        };
-
-        if (approvedUsersList.contains(username) || (acceptTSRBots.get() && Set.of(TSRKitBotUsers).contains(username))) {
+        if (approvedUsers.get().contains(username) || (acceptTSRBots.get() && Set.of(TSRKitBotUsers).contains(username))) {
             ChatUtils.sendPlayerMsg("/tpy " + username);
 
             if (printTpaAccepted.get()) {
