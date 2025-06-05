@@ -76,7 +76,7 @@ public class TPAAutomationModule extends Module {
 
     @Override
     public void onActivate() {
-        if (!OmegawareAddons.getCurrentServerAddress().equals("play.6b6t.org")) {
+        if (!OmegawareAddons.is6B6T()) {
             ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
                 .append(Text.literal("The TPA Automations module is only intended for use on 6b6t.").formatted(Formatting.RED)));
             this.toggle();
