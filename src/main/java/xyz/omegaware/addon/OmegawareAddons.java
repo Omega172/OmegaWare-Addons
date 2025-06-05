@@ -4,6 +4,8 @@ import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.commands.Commands;
 import meteordevelopment.meteorclient.pathing.BaritoneUtils;
 import meteordevelopment.meteorclient.utils.Utils;
+import net.fabricmc.loader.api.FabricLoader;
+import net.fabricmc.loader.api.metadata.ModMetadata;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ServerInfo;
 import net.minecraft.text.Text;
@@ -22,6 +24,8 @@ import org.slf4j.Logger;
 import java.io.File;
 
 public class OmegawareAddons extends MeteorAddon {
+    public static final String MOD_ID = "omegaware-addons";
+    public static ModMetadata MOD_META;
     public static final Logger LOG = LogUtils.getLogger();
     public static final Category CATEGORY = new Category("OmegaWare");
     @SuppressWarnings("unused")
@@ -59,6 +63,8 @@ public class OmegawareAddons extends MeteorAddon {
     public void onInitialize() {
         LOG.info("Initializing OmegaWare Addons");
 
+        MOD_META = FabricLoader.getInstance().getModContainer(MOD_ID).orElseThrow().getMetadata();
+
         // Modules
         Modules.get().add(new TPAAutomationModule());
         Modules.get().add(new BeaconRangeModule());
@@ -66,6 +72,8 @@ public class OmegawareAddons extends MeteorAddon {
         //Modules.get().add(new TSRKitBotModule()); // Commented out because it is not ready yet
         Modules.get().add(new ItemFrameDupeModule());
         Modules.get().add(new BetterStashFinderModule());
+
+        MeteorClient.MOD_META.getCustomValue("a");
 
         // noinspection StatementWithEmptyBody
         if (BaritoneUtils.IS_AVAILABLE) {
@@ -87,7 +95,18 @@ public class OmegawareAddons extends MeteorAddon {
     }
 
     @Override
+    public String getWebsite() {
+        return "https://github.com/Omega172/OmegaWare-Addons";
+    }
+
+    @Override
     public GithubRepo getRepo() {
-        return new GithubRepo("Omega172", "OmegaWare-Addons", "1.21.4");
+        return new GithubRepo("Omega172", "OmegaWare-Addons", "1.21.4", null);
+    }
+
+    @Override
+    public String getCommit() {
+        String commit = MOD_META.getCustomValue(MOD_ID + ":commit").getAsString();
+        return commit.isEmpty() ? null : commit;
     }
 }

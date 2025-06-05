@@ -22,7 +22,7 @@ jobs:
                   java-version: 21
 
             - name: Build with Gradle
-              run: ./gradlew build
+              run: ./gradlew build -Pcommit=${{ github.sha }}
 
             - name: Get mod and Minecraft version
               id: get_versions
