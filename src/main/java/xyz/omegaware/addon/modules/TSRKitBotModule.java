@@ -239,6 +239,14 @@ public class TSRKitBotModule extends Module {
 
             return apiKey != null && !apiKey.isEmpty();
         } else {
+            if (response.body() == null) {
+                Text msg = OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal("Error: ").formatted(Formatting.RED))
+                    .append(Text.literal("No response from server.").formatted(Formatting.WHITE));
+                ChatUtils.sendMsg(msg);
+                return false;
+            }
+
             Text msg = OmegawareAddons.PREFIX.copy()
                 .append(Text.literal("Error: ").formatted(Formatting.RED))
                 .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
@@ -301,6 +309,14 @@ public class TSRKitBotModule extends Module {
                 ChatUtils.sendMsg(msg);
             }
         } else {
+            if (response.body() == null) {
+                Text msg = OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal("Error: ").formatted(Formatting.RED))
+                    .append(Text.literal("No response from server.").formatted(Formatting.WHITE));
+                ChatUtils.sendMsg(msg);
+                return;
+            }
+
             Text msg = OmegawareAddons.PREFIX.copy()
                 .append(Text.literal("Error: ").formatted(Formatting.RED))
                 .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
@@ -347,6 +363,14 @@ public class TSRKitBotModule extends Module {
                     .append(Text.literal(response.body().get("credits").getAsString()).formatted(Formatting.WHITE));
                 ChatUtils.sendMsg(msg);
             } else {
+                if (response.body() == null) {
+                    Text msg = OmegawareAddons.PREFIX.copy()
+                        .append(Text.literal("Error: ").formatted(Formatting.RED))
+                        .append(Text.literal("No response from server.").formatted(Formatting.WHITE));
+                    ChatUtils.sendMsg(msg);
+                    return;
+                }
+
                 Text msg = OmegawareAddons.PREFIX.copy()
                     .append(Text.literal("Error: ").formatted(Formatting.RED))
                     .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
@@ -379,6 +403,14 @@ public class TSRKitBotModule extends Module {
                     ChatUtils.sendMsg(msg);
                 }
             } else {
+                if (response.body() == null) {
+                    Text msg = OmegawareAddons.PREFIX.copy()
+                        .append(Text.literal("Error: ").formatted(Formatting.RED))
+                        .append(Text.literal("No response from server.").formatted(Formatting.WHITE));
+                    ChatUtils.sendMsg(msg);
+                    return;
+                }
+
                 Text msg = OmegawareAddons.PREFIX.copy()
                     .append(Text.literal("Error: ").formatted(Formatting.RED))
                     .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
@@ -584,6 +616,14 @@ public class TSRKitBotModule extends Module {
                     .append(Text.literal(response.body().get("priority").getAsString()).formatted(Formatting.WHITE));
                 ChatUtils.sendMsg(msg);
             } else {
+                if (response.body() == null) {
+                    Text msg = OmegawareAddons.PREFIX.copy()
+                        .append(Text.literal("Error: ").formatted(Formatting.RED))
+                        .append(Text.literal("No response from server.").formatted(Formatting.WHITE));
+                    ChatUtils.sendMsg(msg);
+                    return;
+                }
+
                 Text msg = OmegawareAddons.PREFIX.copy()
                     .append(Text.literal("Error: ").formatted(Formatting.RED))
                     .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
@@ -627,6 +667,14 @@ public class TSRKitBotModule extends Module {
                     .append(Text.literal(response.body().get("message").getAsString()).formatted(Formatting.WHITE));
                 ChatUtils.sendMsg(msg);
             } else {
+                if (response.body() == null) {
+                    Text msg = OmegawareAddons.PREFIX.copy()
+                        .append(Text.literal("Error: ").formatted(Formatting.RED))
+                        .append(Text.literal("No response from server.").formatted(Formatting.WHITE));
+                    ChatUtils.sendMsg(msg);
+                    return;
+                }
+
                 Text msg = OmegawareAddons.PREFIX.copy()
                     .append(Text.literal("Error: ").formatted(Formatting.RED))
                     .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
@@ -675,6 +723,14 @@ public class TSRKitBotModule extends Module {
                     .append(Text.literal(response.body().get("order_id").getAsString()).formatted(Formatting.WHITE));
                 ChatUtils.sendMsg(msg);
             } else {
+                if (response.body() == null) {
+                    Text msg = OmegawareAddons.PREFIX.copy()
+                        .append(Text.literal("Error: ").formatted(Formatting.RED))
+                        .append(Text.literal("No response from server.").formatted(Formatting.WHITE));
+                    ChatUtils.sendMsg(msg);
+                    return;
+                }
+
                 Text msg = OmegawareAddons.PREFIX.copy()
                     .append(Text.literal("Error: ").formatted(Formatting.RED))
                     .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
@@ -753,6 +809,14 @@ public class TSRKitBotModule extends Module {
                     .append(Text.literal(response.body().get("from_balance").getAsString()).formatted(Formatting.WHITE));
                 ChatUtils.sendMsg(msg);
             } else {
+                if (response.body() == null) {
+                    Text msg = OmegawareAddons.PREFIX.copy()
+                        .append(Text.literal("Error: ").formatted(Formatting.RED))
+                        .append(Text.literal("No response from server.").formatted(Formatting.WHITE));
+                    ChatUtils.sendMsg(msg);
+                    return;
+                }
+
                 Text msg = OmegawareAddons.PREFIX.copy()
                     .append(Text.literal("Error: ").formatted(Formatting.RED))
                     .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
