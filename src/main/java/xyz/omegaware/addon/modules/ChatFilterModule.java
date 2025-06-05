@@ -108,7 +108,7 @@ public class ChatFilterModule extends Module {
 
     @Override
     public void onActivate() {
-        if (!OmegawareAddons.getCurrentServerAddress().equals("play.6b6t.org")) {
+        if (!OmegawareAddons.is6B6T()) {
             ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
                 .append(Text.literal("The 6B6T Chat Filter module is only intended for use on 6b6t.").formatted(Formatting.RED)));
             this.toggle();
