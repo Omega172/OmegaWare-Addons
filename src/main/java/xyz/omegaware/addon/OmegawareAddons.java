@@ -88,6 +88,6 @@ public class OmegawareAddons extends MeteorAddon {
 
     @Override
     public GithubRepo getRepo() {
-        return new GithubRepo("Omega172", "OmegaWare-Addons");
+        return new GithubRepo("Omega172", "OmegaWare-Addons", "1.21.4");
     }
 }
