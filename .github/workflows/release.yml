@@ -37,7 +37,7 @@ jobs:
                   tag_name: v${{ steps.get_versions.outputs.mod_version }}-mc${{ steps.get_versions.outputs.mc_version }}
                   name: Release v${{ steps.get_versions.outputs.mod_version }} (MC ${{ steps.get_versions.outputs.mc_version }})
                   body: |
-                      Draft release for mod version ${{ steps.get_versions.outputs.mod_version }} and Minecraft ${{ steps.get_versions.outputs.mc_version }}.
+                    Release for mod version ${{ steps.get_versions.outputs.mod_version }} and Minecraft ${{ steps.get_versions.outputs.mc_version }}.
                   draft: true
                   prerelease: false
                   files: build/libs/*.jar
