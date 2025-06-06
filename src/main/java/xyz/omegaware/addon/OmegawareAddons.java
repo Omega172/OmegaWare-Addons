@@ -73,9 +73,8 @@ public class OmegawareAddons extends MeteorAddon {
         Modules.get().add(new ItemFrameDupeModule());
         Modules.get().add(new BetterStashFinderModule());
 
-        // noinspection StatementWithEmptyBody
         if (BaritoneUtils.IS_AVAILABLE) {
-            Modules.get().add(new TestModule()); // Uncomment this line to enable the test module for the baritone chest interaction stuff
+            Modules.get().add(new BetterBaritoneBuild()); // Uncomment this line to enable the test module for the baritone chest interaction stuff
         }
 
         Commands.add(new LinkCommand());
