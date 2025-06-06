@@ -2,9 +2,10 @@ package xyz.omegaware.addon.modules;
 
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
-import baritone.api.event.events.PathEvent;
-import baritone.api.event.listener.AbstractGameEventListener;
+import baritone.api.command.argument.ICommandArgument;
 import baritone.api.pathing.goals.GoalGetToBlock;
+import baritone.command.argument.ArgConsumer;
+import baritone.command.argument.CommandArguments;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
@@ -13,6 +14,7 @@ import meteordevelopment.meteorclient.events.entity.player.InteractBlockEvent;
 import meteordevelopment.meteorclient.events.game.ReceiveMessageEvent;
 import meteordevelopment.meteorclient.events.packets.InventoryEvent;
 import meteordevelopment.meteorclient.events.world.ServerConnectEndEvent;
+import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.gui.GuiTheme;
 import meteordevelopment.meteorclient.gui.widgets.WWidget;
 import meteordevelopment.meteorclient.gui.widgets.containers.WHorizontalList;
@@ -24,7 +26,10 @@ import meteordevelopment.meteorclient.settings.BoolSetting;
 import meteordevelopment.meteorclient.settings.Setting;
 import meteordevelopment.meteorclient.settings.SettingGroup;
 import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.meteorclient.utils.Utils;
+import meteordevelopment.meteorclient.utils.network.MeteorExecutor;
 import meteordevelopment.meteorclient.utils.player.ChatUtils;
+import meteordevelopment.meteorclient.utils.player.InvUtils;
 import meteordevelopment.meteorclient.utils.player.SlotUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.block.entity.*;
@@ -35,18 +40,26 @@ import net.minecraft.registry.Registries;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
-import net.minecraft.util.Identifier;
+import net.minecraft.util.*;
+import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
+import net.minecraft.util.math.Vec3d;
 import xyz.omegaware.addon.OmegawareAddons;
 
 import java.io.File;
 import java.io.FileWriter;
 import java.io.Writer;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-public class TestModule extends Module implements AbstractGameEventListener {
+public class TestModule extends Module {
     public TestModule() {
         super(OmegawareAddons.CATEGORY, "Test Module", "This is a test module for OmegaWare Addons.");
     }
@@ -69,15 +82,48 @@ public class TestModule extends Module implements AbstractGameEventListener {
         .build()
     );
 
+    IBaritone baritone = null;
+
     private static class LinkedStorage {
         public BlockPos blockPos;
         List<ItemStack> inventory;
+
+        public LinkedStorage() {
+            this.blockPos = BlockPos.ORIGIN; // Default position
+            this.inventory = new ArrayList<>(); // Default empty inventory
+        }
+
+        public LinkedStorage(BlockPos blockPos, List<ItemStack> inventory) {
+            this.blockPos = blockPos;
+            this.inventory = inventory;
+        }
     }
-
     private final List<LinkedStorage> linkedStorages = new ArrayList<>();
-    private final List<Item> itemsToFetch = new ArrayList<>();
 
-    IBaritone baritone = null;
+
+    private static class Event {
+        public boolean bWaitOnPath;
+        public Runnable callback;
+
+        public Event(boolean bWaitOnPath, Runnable callback) {
+            this.bWaitOnPath = bWaitOnPath;
+            this.callback = callback;
+        }
+    }
+    private final List<Event> eventQueue = new ArrayList<>();
+
+    private class StroageItem {
+        public Item item;
+        public LinkedStorage linkedStorage;
+
+        public StroageItem(Item item, LinkedStorage linkedStorage) {
+            this.item = item;
+            this.linkedStorage = linkedStorage;
+        }
+    }
+    private final List<StroageItem> itemsToFetch = new ArrayList<>();
+
+    private String buildCommand = "";
 
     @Override
     public void onActivate() {
@@ -92,117 +138,6 @@ public class TestModule extends Module implements AbstractGameEventListener {
         baritone = BaritoneAPI.getProvider().getBaritoneForMinecraft(MinecraftClient.getInstance());
 
         loadLinkedStorages();
-
-        baritone.getGameEventHandler().registerEventListener(this);
-    }
-
-    private boolean baritoneActive =false;
-
-    private String buildCommand = "";
-
-    @EventHandler
-    private void onMessageReceive(ReceiveMessageEvent event) {
-        if (!isActive()) return;
-        String message = event.getMessage().getString();
-
-        if (!message.toLowerCase().startsWith("[baritone]")) return;
-
-        message = message.substring(10).trim();
-
-        if (message.toLowerCase().startsWith("build")) {
-            buildCommand = message;
-            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                .append(Text.literal("Build command captured: ").formatted(Formatting.GREEN))
-                .append(Text.literal(buildCommand).formatted(Formatting.WHITE)));
-            event.cancel();
-            return;
-        }
-
-        if (message.matches("^(\\d+)x Block\\{minecraft:([a-z0-9_]+)}(\\[axis=[xy]])?$")) { // Missing item message
-            String[] parts = message.split(" ");
-
-            String blockMessage = parts[1];
-            String blockName = blockMessage.substring(blockMessage.indexOf(':') + 1);
-
-            int endIndex = blockName.indexOf('}');
-            if (endIndex != -1) {
-                blockName = blockName.substring(0, endIndex);
-            }
-
-            ChatUtils.sendMsg(Text.literal(blockName));
-        }
-    }
-
-    @Override
-    public void onPathEvent(PathEvent event) {
-        if (!isActive()) return;
-
-        if (event.compareTo(PathEvent.CALC_STARTED) == 0 || event.compareTo(PathEvent.CALC_FINISHED_NOW_EXECUTING) == 0) {
-            baritoneActive = true;
-        }
-
-        baritoneActive = false;
-
-        if (!debugMode.get()) return;
-        ChatUtils.sendMsg(Text.literal(event.toString()));
-    }
-
-    @EventHandler
-    public void onServerConnectEnd(ServerConnectEndEvent event) { loadLinkedStorages(); }
-
-    private BlockPos lastBlockInteractPos = null;
-
-    @EventHandler
-    private void onBlockInteract(InteractBlockEvent event) {
-        if (!isActive() || mc.world == null || !storageLinkMode.get()) return;
-
-        lastBlockInteractPos = event.result.getBlockPos();
-    }
-
-    @EventHandler
-    private void onInventory(InventoryEvent event) {
-        if (!isActive() || lastBlockInteractPos == null || mc.player == null || mc.world == null || mc.currentScreen == null) return;
-
-        // This also causes a network protocol error for some reason
-        /*
-        if (!itemsToFetch.isEmpty()) {
-            itemsToFetch.forEach(item -> mc.player.currentScreenHandler.slots.forEach(slot -> {
-                ItemStack stack = slot.getStack();
-                if (stack.isEmpty() || stack.getItem() != item) return;
-
-                InvUtils.shiftClick().fromId(slot.id);
-                itemsToFetch.remove(item);
-            }));
-        }
-         */
-
-        if (storageLinkMode.get()) {
-            BlockEntity blockEntity = mc.world.getBlockEntity(lastBlockInteractPos);
-            if (blockEntity == null) return;
-
-            if (blockEntity instanceof ShulkerBoxBlockEntity || blockEntity instanceof ChestBlockEntity || blockEntity instanceof BarrelBlockEntity || blockEntity instanceof EnderChestBlockEntity) {
-                for (LinkedStorage linkedStorage : linkedStorages) {
-                    if (linkedStorage.blockPos.equals(lastBlockInteractPos)) {
-                        lastBlockInteractPos = null;
-                        ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                            .append(Text.literal("This Shulker Box is already linked!").formatted(Formatting.RED)));
-                        return;
-                    }
-                }
-                lastBlockInteractPos = null;
-
-                LinkedStorage linkedStorage = indexStorage(mc.player.currentScreenHandler, blockEntity.getPos());
-                if (linkedStorage == null) return;
-
-                linkedStorages.add(linkedStorage);
-                saveLinkedStorages();
-
-                MutableText msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Test Module: ").formatted(Formatting.GREEN))
-                    .append(Text.literal(String.format("Linked Storage located at X=%s, Y=%s, Z=%s", blockEntity.getPos().getX(), blockEntity.getPos().getY(), blockEntity.getPos().getZ())).formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
-            }
-        }
     }
 
     @Override
@@ -255,6 +190,116 @@ public class TestModule extends Module implements AbstractGameEventListener {
         return list;
     }
 
+    @EventHandler
+    private void onTickPre(TickEvent.Pre event) {
+        if (!isActive() || eventQueue.isEmpty()) return;
+
+        Event queuedEvent = eventQueue.getFirst();
+
+        if (queuedEvent.bWaitOnPath && baritone.getPathingBehavior().hasPath()) {
+            return;
+        }
+
+        queuedEvent.callback.run();
+
+        updateLinkedStorages();
+
+        eventQueue.remove(queuedEvent);
+    };
+
+    @EventHandler
+    private void onMessageReceive(ReceiveMessageEvent event) {
+        if (!isActive()) return;
+        String message = event.getMessage().getString();
+
+        if (!message.toLowerCase().startsWith("[baritone]")) return;
+
+        String msg = message.substring(13).trim();
+        if (msg.toLowerCase().startsWith("build")) {
+            buildCommand = msg;
+            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
+                .append(Text.literal("Build command captured: ").formatted(Formatting.GREEN))
+                .append(Text.literal(buildCommand).formatted(Formatting.WHITE)));
+            event.cancel();
+            return;
+        }
+
+        msg = message.substring(10).trim();
+        if (msg.matches("^(\\d+)x Block\\{minecraft:([a-z0-9_]+)}(\\[axis=[xy]])?$")) { // Missing item message
+            String[] parts = msg.split(" ");
+
+            String blockMessage = parts[1];
+            String blockName = blockMessage.substring(blockMessage.indexOf(':') + 1);
+
+            int endIndex = blockName.indexOf('}');
+            if (endIndex != -1) {
+                blockName = blockName.substring(0, endIndex);
+            }
+
+            Identifier identifier = Identifier.of(blockName);
+            Item item = Registries.ITEM.get(identifier).asItem();
+
+            if (item == null) {
+                ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal("Item not found: ").formatted(Formatting.RED))
+                    .append(Text.literal(blockName).formatted(Formatting.WHITE)));
+                return;
+            }
+
+            pathToItemLocation(item);
+        }
+    }
+
+    @EventHandler
+    public void onServerConnectEnd(ServerConnectEndEvent event) { loadLinkedStorages(); }
+
+    private BlockPos lastBlockInteractPos = null;
+
+    @EventHandler
+    private void onBlockInteract(InteractBlockEvent event) {
+        if (!isActive() || mc.world == null || !storageLinkMode.get()) return;
+
+        lastBlockInteractPos = event.result.getBlockPos();
+    }
+
+    @EventHandler
+    private void onInventory(InventoryEvent event) {
+        if (!isActive() || mc.player == null || mc.world == null || mc.currentScreen == null) return;
+
+        if (!itemsToFetch.isEmpty()) {
+            MeteorExecutor.execute(() -> moveSlots(mc.player.currentScreenHandler, SlotUtils.indexToId(SlotUtils.MAIN_START)));
+        }
+
+        if (lastBlockInteractPos == null) return;
+
+        if (storageLinkMode.get()) {
+            BlockEntity blockEntity = mc.world.getBlockEntity(lastBlockInteractPos);
+            if (blockEntity == null) return;
+
+            if (blockEntity instanceof ShulkerBoxBlockEntity || blockEntity instanceof ChestBlockEntity || blockEntity instanceof BarrelBlockEntity || blockEntity instanceof EnderChestBlockEntity) {
+                for (LinkedStorage linkedStorage : linkedStorages) {
+                    if (linkedStorage.blockPos.equals(lastBlockInteractPos)) {
+                        lastBlockInteractPos = null;
+                        linkedStorage.inventory = indexStorage(mc.player.currentScreenHandler, blockEntity.getPos()).inventory;
+                        return;
+                    }
+                }
+                lastBlockInteractPos = null;
+
+                LinkedStorage linkedStorage = indexStorage(mc.player.currentScreenHandler, blockEntity.getPos());
+                if (linkedStorage == null) return;
+
+                linkedStorages.add(linkedStorage);
+                saveLinkedStorages();
+
+                MutableText msg = OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal("Test Module: ").formatted(Formatting.GREEN))
+                    .append(Text.literal(String.format("Linked Storage located at X=%s, Y=%s, Z=%s", blockEntity.getPos().getX(), blockEntity.getPos().getY(), blockEntity.getPos().getZ())).formatted(Formatting.WHITE));
+                ChatUtils.sendMsg(msg);
+            }
+        }
+    }
+
     private void saveLinkedStorages() {
         updateLinkedStorages();
 
@@ -303,7 +348,7 @@ public class TestModule extends Module implements AbstractGameEventListener {
         }
 
         try {
-            String content = java.nio.file.Files.readString(configFile.toPath());
+            String content = Files.readString(configFile.toPath());
             JsonObject payload = GSON.fromJson(content, JsonObject.class);
             if (payload.has("linked_storages")) {
                 JsonArray linkedStoragesArray = payload.getAsJsonArray("linked_storages");
@@ -352,10 +397,7 @@ public class TestModule extends Module implements AbstractGameEventListener {
     private LinkedStorage indexStorage(ScreenHandler screenHandler, BlockPos blockPos) {
         if (screenHandler == null) return null;
 
-        LinkedStorage linkedStorage = new LinkedStorage();
-        linkedStorage.blockPos = blockPos;
-        linkedStorage.inventory = new java.util.ArrayList<>();
-
+        LinkedStorage linkedStorage = new LinkedStorage(blockPos, new ArrayList<>());
         for (int i = 0; i < SlotUtils.indexToId(SlotUtils.MAIN_START); i++) {
             ItemStack stack = screenHandler.getSlot(i).getStack();
             if (!stack.isEmpty()) {
@@ -388,6 +430,25 @@ public class TestModule extends Module implements AbstractGameEventListener {
         return null;
     }
 
+    private static class FindResult {
+        public boolean found;
+        public LinkedStorage linkedStorage;
+
+        public FindResult(boolean found, LinkedStorage linkedStorage) {
+            this.found = found;
+            this.linkedStorage = linkedStorage;
+        }
+    }
+    private FindResult itemsToFetchHas(Item item) {
+        for (StroageItem storageItem : itemsToFetch) {
+            if (storageItem.item == item) {
+                return new FindResult(true, storageItem.linkedStorage);
+            }
+        }
+
+        return new FindResult(false, null);
+    }
+
     private void pathToItemLocation(Item item) {
         if (mc.player == null || mc.interactionManager == null) return;
 
@@ -403,25 +464,82 @@ public class TestModule extends Module implements AbstractGameEventListener {
             .append(Text.literal("Navigating to storage containing: ").formatted(Formatting.GREEN))
             .append(Text.literal(item.getName().getString()).formatted(Formatting.WHITE)));
 
-        pathToPos(linkedStorage.blockPos);
+        itemsToFetch.add(new StroageItem(item, linkedStorage));
 
-        // We need to somehow wait for baritone to finish navigating before we can fetch the item
-        // I have been unable to find a way to do this.
+        eventQueue.add(new Event(true, () -> {
+            pathToPos(linkedStorage.blockPos);
+        }));
 
+        eventQueue.add(new Event(true, () -> {
+            mc.setScreen(null); // Close any open screens to ensure that we can interact with the storage block
 
-        // Because if we do not wait, it will immediately try to interact with the block, which will cause a network protocol error
-        /*
-        mc.setScreen(null); // Close any open screens to ensure that we can interact with the storage block
+            Vec3d hitPos = Vec3d.ofCenter(linkedStorage.blockPos);
+            BlockHitResult hit = new BlockHitResult(hitPos, Direction.UP, linkedStorage.blockPos, false);
 
-        Vec3d hitPos = Vec3d.ofCenter(linkedStorage.blockPos);
-        BlockHitResult hit = new BlockHitResult(hitPos, Direction.UP, linkedStorage.blockPos, false);
+            ActionResult result = mc.interactionManager.interactBlock(mc.player, Hand.MAIN_HAND, hit); // Attempt to interact with the block
+            if (result.isAccepted()) // If the interaction was successful, we can then make the player swing their hand
+                mc.player.swingHand(Hand.MAIN_HAND);
+        }));
+    }
 
-        ActionResult result = mc.interactionManager.interactBlock(mc.player, Hand.MAIN_HAND, hit); // Attempt to interact with the block
-        if (result.isAccepted()) // If the interaction was successful, we can then make the player swing their hand
-            mc.player.swingHand(Hand.MAIN_HAND);
+    private void moveSlots(ScreenHandler handler, int end) {
+        if (mc.player == null) return;
 
-        */
+        boolean initial = true;
+        int count = 0;
+        List<Item> grabbedItems = new ArrayList<>();
+        for (int i = 0; i < end; i++) {
+            if (!handler.getSlot(i).hasStack()) continue;
 
-        itemsToFetch.add(item);
+            int sleep;
+            if (initial) {
+                sleep = 50;
+                initial = false;
+            } else sleep = 70;
+            try {
+                Thread.sleep(sleep);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                OmegawareAddons.LOG.error("Interrupted while sleeping in moveSlots: {}", e.getMessage());
+            }
+
+            // Exit if user closes screen or exit world
+            if (mc.currentScreen == null || !Utils.canUpdate()) break;
+
+            Item item = handler.getSlot(i).getStack().getItem();
+
+            FindResult findResult = itemsToFetchHas(item);
+            if (!findResult.found) continue;
+
+            grabbedItems.add(item);
+
+            count++;
+            InvUtils.shiftClick().slotId(i);
+
+            findResult.linkedStorage.inventory.remove(handler.getSlot(i).getStack());
+
+            if (count >= 3) {
+                break;
+            }
+        }
+
+        itemsToFetch.removeIf(stroageItem -> grabbedItems.contains(stroageItem.item));
+
+        // Remove empty storages
+        linkedStorages.removeIf(linkedStorage -> {
+            if (linkedStorage.inventory.isEmpty()) {
+                ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal("Removed empty storage at: ").formatted(Formatting.RED))
+                    .append(Text.literal(String.format("X=%s, Y=%s, Z=%s", linkedStorage.blockPos.getX(), linkedStorage.blockPos.getY(), linkedStorage.blockPos.getZ())).formatted(Formatting.WHITE)));
+                return true;
+            }
+            return false;
+        });
+
+        if (!buildCommand.isEmpty()) {
+            eventQueue.add(new Event(true, () -> {
+                baritone.getCommandManager().execute(buildCommand);
+            }));
+        }
     }
 }
