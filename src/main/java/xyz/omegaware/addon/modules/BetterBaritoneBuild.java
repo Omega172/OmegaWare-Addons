@@ -2,10 +2,7 @@ package xyz.omegaware.addon.modules;
 
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
-import baritone.api.command.argument.ICommandArgument;
 import baritone.api.pathing.goals.GoalGetToBlock;
-import baritone.command.argument.ArgConsumer;
-import baritone.command.argument.CommandArguments;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
@@ -23,9 +20,12 @@ import meteordevelopment.meteorclient.gui.widgets.input.WTextBox;
 import meteordevelopment.meteorclient.gui.widgets.pressable.WButton;
 import meteordevelopment.meteorclient.pathing.BaritoneUtils;
 import meteordevelopment.meteorclient.settings.BoolSetting;
+import meteordevelopment.meteorclient.settings.IntSetting;
 import meteordevelopment.meteorclient.settings.Setting;
 import meteordevelopment.meteorclient.settings.SettingGroup;
 import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.meteorclient.systems.modules.Modules;
+import meteordevelopment.meteorclient.systems.modules.misc.AutoReconnect;
 import meteordevelopment.meteorclient.utils.Utils;
 import meteordevelopment.meteorclient.utils.network.MeteorExecutor;
 import meteordevelopment.meteorclient.utils.player.ChatUtils;
@@ -34,6 +34,7 @@ import meteordevelopment.meteorclient.utils.player.SlotUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.block.entity.*;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.network.ClientPlayNetworkHandler;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.registry.Registries;
@@ -47,37 +48,56 @@ import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
 import xyz.omegaware.addon.OmegawareAddons;
 
+import javax.annotation.Nullable;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.Writer;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
-public class TestModule extends Module {
-    public TestModule() {
-        super(OmegawareAddons.CATEGORY, "Test Module", "This is a test module for OmegaWare Addons.");
+public class BetterBaritoneBuild extends Module {
+    public BetterBaritoneBuild() {
+        super(OmegawareAddons.CATEGORY, "Better Baritone Build", "Enable this module to enhance Baritone's building capabilities with linked storage and item fetching features.");
     }
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private final SettingGroup sgGeneral = this.settings.getDefaultGroup();
 
-    private final Setting<Boolean> debugMode = sgGeneral.add(new BoolSetting.Builder()
-        .name("debug-mode")
-        .description("If enabled, debug messages will be printed to the chat.")
+    private final Setting<Boolean> storageLinkMode = sgGeneral.add(new BoolSetting.Builder()
+        .name("storage-link-mode")
+        .description("If enabled, all storage blocks you interact with will be linked to this module.")
         .defaultValue(false)
         .build()
     );
 
-    private final Setting<Boolean> storageLinkMode = sgGeneral.add(new BoolSetting.Builder()
-        .name("storage-link-mode")
-        .description("If enabled, all storage blocks you interact with will be linked to this module.")
+    private final Setting<Boolean> disconnectOnDone = sgGeneral.add(new BoolSetting.Builder()
+        .name("disconnect-on-done")
+        .description("If enabled, the module will disconnect you from the server when it is done.")
+        .defaultValue(false)
+        .build()
+    );
+
+    private final Setting<Boolean> disconnectOnError = sgGeneral.add(new BoolSetting.Builder()
+        .name("disconnect-on-error")
+        .description("If enabled, the module will disconnect you from the server when it encounters an error.")
+        .defaultValue(false)
+        .build()
+    );
+
+    private final Setting<Integer> extraStacks = sgGeneral.add(new IntSetting.Builder()
+        .name("extra-stacks")
+        .description("The number of extra stacks to fetch from the linked storage.")
+        .defaultValue(0)
+        .min(0)
+        .sliderRange(0, 10)
+        .build()
+    );
+
+    private final Setting<Boolean> debugMode = sgGeneral.add(new BoolSetting.Builder()
+        .name("debug-mode")
+        .description("If enabled, the module will print debug information to the console.")
         .defaultValue(false)
         .build()
     );
@@ -112,16 +132,18 @@ public class TestModule extends Module {
     }
     private final List<Event> eventQueue = new ArrayList<>();
 
-    private class StroageItem {
+    private static class StorageItem {
         public Item item;
+        public Integer stacks;
         public LinkedStorage linkedStorage;
 
-        public StroageItem(Item item, LinkedStorage linkedStorage) {
+        public StorageItem(Item item, Integer stacks, LinkedStorage linkedStorage) {
             this.item = item;
+            this.stacks = stacks;
             this.linkedStorage = linkedStorage;
         }
     }
-    private final List<StroageItem> itemsToFetch = new ArrayList<>();
+    private final List<StorageItem> itemsToFetch = new ArrayList<>();
 
     private String buildCommand = "";
 
@@ -136,6 +158,9 @@ public class TestModule extends Module {
         }
 
         baritone = BaritoneAPI.getProvider().getBaritoneForMinecraft(MinecraftClient.getInstance());
+
+        eventQueue.clear();
+        itemsToFetch.clear();
 
         loadLinkedStorages();
     }
@@ -164,29 +189,6 @@ public class TestModule extends Module {
         };
         hList.add(clearBtn);
 
-        WHorizontalList hList2 = list.add(theme.horizontalList()).expandX().widget();
-
-        WTextBox itemTextBox = theme.textBox("");
-        itemTextBox.minWidth = 100;
-        WButton findItemBtn = theme.button("Find Item in Linked Storages");
-        findItemBtn.action = () -> {
-            if (mc.player == null || mc.world == null) return;
-
-            Identifier identifier = Identifier.of(itemTextBox.get());
-            Item item = Registries.ITEM.get(identifier).asItem();
-
-            if (item == null) {
-                ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Item not found: ").formatted(Formatting.RED))
-                    .append(Text.literal(itemTextBox.get()).formatted(Formatting.WHITE)));
-                return;
-            }
-
-            pathToItemLocation(item);
-        };
-        hList2.add(findItemBtn);
-        hList2.add(itemTextBox);
-
         return list;
     }
 
@@ -210,23 +212,21 @@ public class TestModule extends Module {
     @EventHandler
     private void onMessageReceive(ReceiveMessageEvent event) {
         if (!isActive()) return;
-        String message = event.getMessage().getString();
+        String msg = event.getMessage().getString();
+        if (msg == null || msg.isEmpty()) return;
+        msg = msg.toLowerCase().trim();
 
-        if (!message.toLowerCase().startsWith("[baritone]")) return;
+        if (!msg.contains("[baritone]")) return;
+        int index = msg.indexOf("[baritone]");
 
-        String msg = message.substring(13).trim();
-        if (msg.toLowerCase().startsWith("build")) {
-            buildCommand = msg;
-            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                .append(Text.literal("Build command captured: ").formatted(Formatting.GREEN))
-                .append(Text.literal(buildCommand).formatted(Formatting.WHITE)));
-            event.cancel();
-            return;
-        }
-
-        msg = message.substring(10).trim();
-        if (msg.matches("^(\\d+)x Block\\{minecraft:([a-z0-9_]+)}(\\[axis=[xy]])?$")) { // Missing item message
+        msg = msg.substring(index+10).trim(); // Remove the "[Baritone]" part
+        // 10x block{minecraft:black_concrete}[axis=x] 86x block{minecraft:red_concrete} 1x block{minecraft:birch_log}[axis=y]
+        if (msg.matches("\\d+x block\\{minecraft:[a-z_]+}.*")) {
             String[] parts = msg.split(" ");
+
+            String blockCount = parts[0].replace("x", "").trim();
+            int count = Integer.parseInt(blockCount);
+            int stacks = (int) Math.ceil(count / 64.0);
 
             String blockMessage = parts[1];
             String blockName = blockMessage.substring(blockMessage.indexOf(':') + 1);
@@ -239,14 +239,58 @@ public class TestModule extends Module {
             Identifier identifier = Identifier.of(blockName);
             Item item = Registries.ITEM.get(identifier).asItem();
 
-            if (item == null) {
+            if (item == null && debugMode.get()) {
                 ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
                     .append(Text.literal("Item not found: ").formatted(Formatting.RED))
                     .append(Text.literal(blockName).formatted(Formatting.WHITE)));
                 return;
             }
 
-            pathToItemLocation(item);
+            pathToItemLocation(item, stacks+extraStacks.get());
+            return;
+        }
+
+        if (msg.contains("done building")) {
+            if (debugMode.get()) {
+                ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal("Baritone has finished building!").formatted(Formatting.GREEN)));
+            }
+
+            if (disconnectOnDone.get()) {
+                AutoReconnect autoReconnect = Modules.get().get(meteordevelopment.meteorclient.systems.modules.misc.AutoReconnect.class);
+                if (autoReconnect.isActive()) {
+                    autoReconnect.toggle();
+                }
+
+                String prefix = OmegawareAddons.PREFIX.getString();
+                MutableText text = Text.literal(String.format("%s%s%s%s %s", Formatting.GRAY, Formatting.BLUE, prefix.substring(0, prefix.length() - 1), Formatting.GRAY, Formatting.RED) + "Baritone has finished building!");
+
+                ClientPlayNetworkHandler networkHandler = mc.getNetworkHandler();
+                if (networkHandler != null) {
+                    networkHandler.getConnection().disconnect(text);
+                }
+            }
+            event.cancel();
+            return;
+        }
+
+        msg = msg.substring(2).trim(); // Remove the "> " part
+        if (msg.startsWith("build")) {
+            buildCommand = msg;
+            if (debugMode.get()) {
+                ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal("Build command captured: ").formatted(Formatting.GREEN))
+                    .append(Text.literal(buildCommand).formatted(Formatting.WHITE)));
+            }
+            event.cancel();
+            return;
+        }
+
+        if (msg.startsWith("stop") || msg.startsWith("cancel")) {
+            buildCommand = msg;
+            eventQueue.clear();
+            itemsToFetch.clear();
+            event.cancel();
         }
     }
 
@@ -267,7 +311,15 @@ public class TestModule extends Module {
         if (!isActive() || mc.player == null || mc.world == null || mc.currentScreen == null) return;
 
         if (!itemsToFetch.isEmpty()) {
-            MeteorExecutor.execute(() -> moveSlots(mc.player.currentScreenHandler, SlotUtils.indexToId(SlotUtils.MAIN_START)));
+            itemsToFetch.forEach(storageItem -> {
+                MeteorExecutor.execute(() -> {
+                    if (debugMode.get()) {
+                        String msg = String.format("Fetching %s stacks of %s from linked storage at X=%s, Y=%s, Z=%s", storageItem.stacks, storageItem.item.getName().getString(), storageItem.linkedStorage.blockPos.getX(), storageItem.linkedStorage.blockPos.getY(), storageItem.linkedStorage.blockPos.getZ());
+                        ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy().append(Text.literal(msg).formatted(Formatting.GREEN)));
+                    }
+                    moveSlots(storageItem, mc.player.currentScreenHandler, SlotUtils.MAIN_END);
+                });
+            });
         }
 
         if (lastBlockInteractPos == null) return;
@@ -280,7 +332,14 @@ public class TestModule extends Module {
                 for (LinkedStorage linkedStorage : linkedStorages) {
                     if (linkedStorage.blockPos.equals(lastBlockInteractPos)) {
                         lastBlockInteractPos = null;
-                        linkedStorage.inventory = indexStorage(mc.player.currentScreenHandler, blockEntity.getPos()).inventory;
+                        linkedStorages.remove(linkedStorage);
+
+                        LinkedStorage newStorage = indexStorage(mc.player.currentScreenHandler, blockEntity.getPos());
+                        if (newStorage != null) {
+                            linkedStorages.add(newStorage);
+                            saveLinkedStorages();
+                        }
+
                         return;
                     }
                 }
@@ -289,11 +348,19 @@ public class TestModule extends Module {
                 LinkedStorage linkedStorage = indexStorage(mc.player.currentScreenHandler, blockEntity.getPos());
                 if (linkedStorage == null) return;
 
+                if (linkedStorage.inventory.isEmpty()) {
+                    if (debugMode.get()) {
+                        ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
+                            .append(Text.literal("No items found in the linked storage!").formatted(Formatting.RED)));
+                    }
+                    return;
+                }
                 linkedStorages.add(linkedStorage);
                 saveLinkedStorages();
 
+
                 MutableText msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Test Module: ").formatted(Formatting.GREEN))
+                    .append(Text.literal("Better Baritone Build: ").formatted(Formatting.GREEN))
                     .append(Text.literal(String.format("Linked Storage located at X=%s, Y=%s, Z=%s", blockEntity.getPos().getX(), blockEntity.getPos().getY(), blockEntity.getPos().getZ())).formatted(Formatting.WHITE));
                 ChatUtils.sendMsg(msg);
             }
@@ -389,7 +456,13 @@ public class TestModule extends Module {
         if (mc.world == null || linkedStorages.isEmpty()) return;
 
         linkedStorages.removeIf(storage -> {
+            if (storage == null) return true;
             if (!mc.world.isPosLoaded(storage.blockPos)) return false;
+
+            if (storage.inventory == null || storage.inventory.isEmpty()) {
+                return true;
+            }
+
             return mc.world.getBlockState(storage.blockPos).isAir() || mc.world.getBlockEntity(storage.blockPos) == null;
         });
     }
@@ -411,9 +484,11 @@ public class TestModule extends Module {
     private void pathToPos(BlockPos blockPos) {
         if (mc.player == null || mc.world == null) return;
 
-        ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-            .append(Text.literal("Navigating to: ").formatted(Formatting.GREEN))
-            .append(Text.literal(String.format("X=%s, Y=%s, Z=%s", blockPos.getX(), blockPos.getY(), blockPos.getZ())).formatted(Formatting.WHITE)));
+        if (debugMode.get()) {
+            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
+                .append(Text.literal("Navigating to: ").formatted(Formatting.GREEN))
+                .append(Text.literal(String.format("X=%s, Y=%s, Z=%s", blockPos.getX(), blockPos.getY(), blockPos.getZ())).formatted(Formatting.WHITE)));
+        }
 
         baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(blockPos));
     }
@@ -439,24 +514,35 @@ public class TestModule extends Module {
             this.linkedStorage = linkedStorage;
         }
     }
-    private FindResult itemsToFetchHas(Item item) {
-        for (StroageItem storageItem : itemsToFetch) {
-            if (storageItem.item == item) {
-                return new FindResult(true, storageItem.linkedStorage);
-            }
-        }
 
-        return new FindResult(false, null);
-    }
-
-    private void pathToItemLocation(Item item) {
+    private void pathToItemLocation(Item item, @Nullable Integer stacks) {
         if (mc.player == null || mc.interactionManager == null) return;
+
+        if (stacks == null) stacks = 1; // Default to 1 stack if not specified
 
         LinkedStorage linkedStorage = findItem(item);
         if (linkedStorage == null) {
             ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
                 .append(Text.literal("No linked storage contains the item: ").formatted(Formatting.RED))
                 .append(Text.literal(item.getName().getString()).formatted(Formatting.WHITE)));
+
+            if (disconnectOnError.get()) {
+                AutoReconnect autoReconnect = Modules.get().get(meteordevelopment.meteorclient.systems.modules.misc.AutoReconnect.class);
+                if (autoReconnect.isActive()) {
+                    autoReconnect.toggle();
+                }
+
+                String prefix = OmegawareAddons.PREFIX.getString();
+                MutableText text = Text.literal(String.format("%s%s%s%s %s", Formatting.GRAY, Formatting.BLUE, prefix.substring(0, prefix.length() - 1), Formatting.GRAY, Formatting.RED) + String.format("No linked storage contains the item: %s\n", item.getName().getString()));
+
+                disconnectOnError.set(false); // Disable the setting to prevent infinite disconnects
+
+                ClientPlayNetworkHandler networkHandler = mc.getNetworkHandler();
+                if (networkHandler != null) {
+                    networkHandler.getConnection().disconnect(text);
+                }
+            }
+
             return;
         }
 
@@ -464,7 +550,7 @@ public class TestModule extends Module {
             .append(Text.literal("Navigating to storage containing: ").formatted(Formatting.GREEN))
             .append(Text.literal(item.getName().getString()).formatted(Formatting.WHITE)));
 
-        itemsToFetch.add(new StroageItem(item, linkedStorage));
+        itemsToFetch.add(new StorageItem(item, stacks, linkedStorage));
 
         eventQueue.add(new Event(true, () -> {
             pathToPos(linkedStorage.blockPos);
@@ -482,7 +568,7 @@ public class TestModule extends Module {
         }));
     }
 
-    private void moveSlots(ScreenHandler handler, int end) {
+    private void moveSlots(StorageItem storageItem, ScreenHandler handler, int end) {
         if (mc.player == null) return;
 
         boolean initial = true;
@@ -507,34 +593,25 @@ public class TestModule extends Module {
             if (mc.currentScreen == null || !Utils.canUpdate()) break;
 
             Item item = handler.getSlot(i).getStack().getItem();
-
-            FindResult findResult = itemsToFetchHas(item);
-            if (!findResult.found) continue;
+            if (item != storageItem.item) continue;
 
             grabbedItems.add(item);
 
             count++;
             InvUtils.shiftClick().slotId(i);
 
-            findResult.linkedStorage.inventory.remove(handler.getSlot(i).getStack());
+            LinkedStorage linkedStorage = storageItem.linkedStorage;
+            linkedStorages.remove(linkedStorage);
+            linkedStorage.inventory.remove(handler.getSlot(i).getStack());
+            linkedStorages.add(linkedStorage);
+            saveLinkedStorages();
 
-            if (count >= 3) {
+            if (count >= storageItem.stacks) {
                 break;
             }
         }
 
-        itemsToFetch.removeIf(stroageItem -> grabbedItems.contains(stroageItem.item));
-
-        // Remove empty storages
-        linkedStorages.removeIf(linkedStorage -> {
-            if (linkedStorage.inventory.isEmpty()) {
-                ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Removed empty storage at: ").formatted(Formatting.RED))
-                    .append(Text.literal(String.format("X=%s, Y=%s, Z=%s", linkedStorage.blockPos.getX(), linkedStorage.blockPos.getY(), linkedStorage.blockPos.getZ())).formatted(Formatting.WHITE)));
-                return true;
-            }
-            return false;
-        });
+        itemsToFetch.removeIf(element -> grabbedItems.contains(element.item));
 
         if (!buildCommand.isEmpty()) {
             eventQueue.add(new Event(true, () -> {
