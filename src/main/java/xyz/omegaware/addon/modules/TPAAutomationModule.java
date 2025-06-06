@@ -1,6 +1,7 @@
 package xyz.omegaware.addon.modules;
 
 import meteordevelopment.meteorclient.settings.*;
+import meteordevelopment.meteorclient.systems.friends.Friends;
 import meteordevelopment.meteorclient.utils.player.ChatUtils;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
@@ -22,20 +23,17 @@ public class TPAAutomationModule extends Module {
     private final SettingGroup sgApprovedUsers = this.settings.createGroup("Approved Users");
     private final SettingGroup sgGeneral = this.settings.createGroup("General");
 
-    String[] TSRKitBotUsers = {
-        "royalburner",
-        "Poolyin",
-        "PoolyinHelper",
-        "RoyalHelper",
-        "TSRMANIA",
-        "WomenAreScary",
-        "ElectricCallboy"
-    };
-
     private final Setting<List<String>> approvedUsers = sgApprovedUsers.add(new StringListSetting.Builder()
         .name("approved-users-list")
         .description("A list of users to filter.")
         .defaultValue(List.of("user1", "user2", "user3"))
+        .build()
+    );
+
+    private final Setting<Boolean> acceptFriends = sgGeneral.add(new BoolSetting.Builder()
+        .name("accept-friends")
+        .description("Automatically accept teleport requests from your Meteor friend list.")
+        .defaultValue(true)
         .build()
     );
 
@@ -85,6 +83,16 @@ public class TPAAutomationModule extends Module {
     private static final Pattern TPA_ACCEPTED_PATTERN = Pattern.compile("^Request from ([A-Za-z0-9_]{3,16}) accepted!$");
     private static final Pattern TPA_DENIED_PATTERN = Pattern.compile("^Request from ([A-Za-z0-9_]{3,16}) denied!$");
     private static final Pattern TPA_REQUEST_PATTERN = Pattern.compile("^([A-Za-z0-9_]{3,16}) wants to teleport to you\\.$");
+
+    private static final Set<String> TSR_KIT_BOT_USERS = Set.of(
+            "royalburner",
+            "Poolyin",
+            "PoolyinHelper",
+            "RoyalHelper",
+            "TSRMANIA",
+            "WomenAreScary",
+            "ElectricCallboy"
+    );
 
     @Override
     public void onActivate() {
@@ -145,20 +153,15 @@ public class TPAAutomationModule extends Module {
             .append(Text.literal(username).formatted(Formatting.WHITE))
             .append(Text.literal("!").formatted(Formatting.WHITE));
 
-        if (approvedUsers.get().contains(username) || (acceptTSRBots.get() && Set.of(TSRKitBotUsers).contains(username))) {
+        if (approvedUsers.get().contains(username) || (acceptFriends.get() && Friends.get().get(username) != null) || (acceptTSRBots.get() &&  TSR_KIT_BOT_USERS.contains(username))) {
             ChatUtils.sendPlayerMsg("/tpy " + username);
 
-            if (printTpaAccepted.get()) {
-                ChatUtils.sendMsg(accepted);
-            }
-        } else {
-            if (autoDeny.get()) {
-                ChatUtils.sendPlayerMsg("/tpn " + username);
+            if (printTpaAccepted.get()) ChatUtils.sendMsg(accepted);
 
-                if (printTpaIgnored.get()) {
-                    ChatUtils.sendMsg(ignored);
-                }
-            }
+        } else if (autoDeny.get()){
+            ChatUtils.sendPlayerMsg("/tpn " + username);
+
+            if (printTpaIgnored.get()) ChatUtils.sendMsg(ignored);
         }
 
         if (filterTpaMessages.get() && printTpaDetected.get()) {
