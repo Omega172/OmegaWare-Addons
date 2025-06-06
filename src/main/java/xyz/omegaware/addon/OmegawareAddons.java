@@ -3,6 +3,7 @@ package xyz.omegaware.addon;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.commands.Commands;
 import meteordevelopment.meteorclient.pathing.BaritoneUtils;
+import meteordevelopment.meteorclient.systems.hud.Hud;
 import meteordevelopment.meteorclient.utils.Utils;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.metadata.ModMetadata;
@@ -12,6 +13,7 @@ import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import xyz.omegaware.addon.commands.LinkCommand;
 import xyz.omegaware.addon.commands.ShulkerQueueCommand;
+import xyz.omegaware.addon.hud.OnlineTSRMembersHUD;
 import xyz.omegaware.addon.modules.*;
 import com.mojang.logging.LogUtils;
 import meteordevelopment.meteorclient.addons.GithubRepo;
@@ -51,7 +53,7 @@ public class OmegawareAddons extends MeteorAddon {
     @SuppressWarnings("BooleanMethodIsAlwaysInverted")
     public static boolean is6B6T() {
         String serverAddress = getCurrentServerAddress();
-        return serverAddress.equals("6b6t.org") || serverAddress.equals("play.6b6t.org");
+        return serverAddress.contains("6b6t.org");
     }
 
     public static final Text PREFIX = Text.empty()
@@ -79,6 +81,8 @@ public class OmegawareAddons extends MeteorAddon {
 
         Commands.add(new LinkCommand());
         Commands.add(new ShulkerQueueCommand());
+
+        Hud.get().register(OnlineTSRMembersHUD.INFO);
     }
 
     @Override
