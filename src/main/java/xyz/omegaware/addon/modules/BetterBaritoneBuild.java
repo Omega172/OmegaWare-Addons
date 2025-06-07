@@ -72,6 +72,30 @@ public class BetterBaritoneBuild extends Module {
         .build()
     );
 
+    private final Setting<Boolean> ignoreY = sgGeneral.add(new BoolSetting.Builder()
+        .name("baritone-ignore-y")
+        .description("If enabled, the Y coordinate will be ignored when navigating to a block.")
+        .defaultValue(false)
+        .build()
+    );
+
+    private final Setting<Boolean> homeIfStuck = sgGeneral.add(new BoolSetting.Builder()
+        .name("home-if-stuck")
+        .description("If enabled, Baritone will return set home point if it gets stuck while building.")
+        .defaultValue(false)
+        .build()
+    );
+
+    private final Setting<Integer> homeIfStuckTimeout = sgGeneral.add(new IntSetting.Builder()
+        .name("home-if-stuck-timeout")
+        .description("The timeout in seconds before Baritone returns to the home point if it gets stuck.")
+        .defaultValue(15)
+        .min(1)
+        .sliderRange(5, 120)
+        .visible(homeIfStuck::get)
+        .build()
+    );
+
     private final Setting<Boolean> highlightLinkedStorages = sgRender.add(new BoolSetting.Builder()
         .name("highlight-linked-storages")
         .description("If enabled, linked storages will be highlighted with a box.")
@@ -159,7 +183,6 @@ public class BetterBaritoneBuild extends Module {
     }
     private final List<LinkedStorage> linkedStorages = new ArrayList<>();
 
-
     private static class Event {
         public boolean bWaitOnPath;
         public Runnable callback;
@@ -231,6 +254,10 @@ public class BetterBaritoneBuild extends Module {
         }
     }
 
+    private BlockPos home = null;
+    private int ticksStuck = 0;
+    private BlockPos lastBlockPos = null;
+
     @Override
     public WWidget getWidget(GuiTheme theme) {
         WVerticalList list = theme.verticalList();
@@ -255,6 +282,20 @@ public class BetterBaritoneBuild extends Module {
         };
         hList.add(clearBtn);
 
+        WButton setHomeBtn = theme.button("Set Home");
+        setHomeBtn.action = () -> {
+            if (mc.player == null || mc.world == null) return;
+
+            home = mc.player.getBlockPos();
+            ticksStuck = 0;
+            lastBlockPos = null;
+
+            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
+                .append(Text.literal("Home point set to: ").formatted(Formatting.GREEN))
+                .append(Text.literal(String.format("X=%s, Y=%s, Z=%s", home.getX(), home.getY(), home.getZ())).formatted(Formatting.WHITE)));
+        };
+        hList.add(setHomeBtn);
+
         return list;
     }
 
@@ -274,6 +315,73 @@ public class BetterBaritoneBuild extends Module {
 
         eventQueue.remove(queuedEvent);
     };
+
+    @EventHandler
+    private void onTickPost(TickEvent.Post event) {
+        if (!isActive() || mc.world == null || mc.player == null || !homeIfStuck.get()) return;
+        if (mc.player.getBlockPos().equals(home)) {
+            if (debugMode.get()) {
+                ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal("Player is at home point.").formatted(Formatting.GREEN)));
+            }
+            ticksStuck = 0; // Reset the stuck counter if the player is at home
+            lastBlockPos = null; // Reset the last block position
+            return;
+        }
+
+        if (home == null) {
+            // Yell at the player to set a home point
+            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal("Please set a home point using the \"Set Home\" button!").formatted(Formatting.RED)));
+            homeIfStuck.set(false); // Disable the setting if no home point is set
+            return;
+        }
+
+        if (buildCommand.isEmpty()) return;
+
+        if (lastBlockPos == null) {
+            lastBlockPos = mc.player.getBlockPos();
+            return;
+        }
+
+        if (lastBlockPos.equals(mc.player.getBlockPos())) {
+            ticksStuck++;
+        } else {
+            ticksStuck = 0;
+            lastBlockPos = mc.player.getBlockPos(); // Update the last block position if the player has moved
+            return;
+        }
+
+        if (debugMode.get()) {
+            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
+                .append(Text.literal("Baritone is stuck, ticks: ").formatted(Formatting.RED))
+                .append(Text.literal(String.valueOf(ticksStuck)).formatted(Formatting.WHITE)));
+
+            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal(String.format("Should return home: %s", ticksStuck >= homeIfStuckTimeout.get() * 20))).formatted(Formatting.GREEN));
+        }
+
+        // 1 second = 20 ticks
+        if (ticksStuck >= homeIfStuckTimeout.get() * 20) {
+            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
+                    .append(Text.literal("Baritone is stuck, returning to home point...").formatted(Formatting.RED)));
+
+            eventQueue.clear();
+            itemsToFetch.clear();
+
+            baritone.getCommandManager().execute("stop");
+
+            eventQueue.add(new Event(false, () -> {
+                baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(home));
+            }));
+
+            if (!buildCommand.isEmpty()) {
+                eventQueue.add(new Event(true, () -> {
+                    baritone.getCommandManager().execute(buildCommand);
+                }));
+            }
+        }
+    }
 
     @EventHandler
     private void onMessageReceive(ReceiveMessageEvent event) {
@@ -353,7 +461,7 @@ public class BetterBaritoneBuild extends Module {
         }
 
         if (msg.startsWith("stop") || msg.startsWith("cancel")) {
-            buildCommand = msg;
+            buildCommand = "";
             eventQueue.clear();
             itemsToFetch.clear();
             event.cancel();
@@ -556,7 +664,9 @@ public class BetterBaritoneBuild extends Module {
                 .append(Text.literal(String.format("X=%s, Y=%s, Z=%s", blockPos.getX(), blockPos.getY(), blockPos.getZ())).formatted(Formatting.WHITE)));
         }
 
-        baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(blockPos));
+        if (!ignoreY.get()) {
+            baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(blockPos));
+        } else baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(blockPos.withY(mc.player.getBlockY())));
     }
 
     private LinkedStorage findItem(Item item) {
