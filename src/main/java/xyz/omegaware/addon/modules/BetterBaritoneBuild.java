@@ -366,10 +366,13 @@ public class BetterBaritoneBuild extends Module {
             ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
                     .append(Text.literal("Baritone is stuck, returning to home point...").formatted(Formatting.RED)));
 
+            ticksStuck = 0; // Reset the stuck counter
+            lastBlockPos = mc.player.getBlockPos(); // Update the last block position
+
             eventQueue.clear();
             itemsToFetch.clear();
 
-            baritone.getCommandManager().execute("stop");
+            baritone.getPathingBehavior().cancelEverything();
 
             eventQueue.add(new Event(false, () -> {
                 baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(home));
