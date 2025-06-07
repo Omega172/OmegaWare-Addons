@@ -10,19 +10,17 @@ import com.google.gson.JsonObject;
 import meteordevelopment.meteorclient.events.entity.player.InteractBlockEvent;
 import meteordevelopment.meteorclient.events.game.ReceiveMessageEvent;
 import meteordevelopment.meteorclient.events.packets.InventoryEvent;
+import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.ServerConnectEndEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
 import meteordevelopment.meteorclient.gui.GuiTheme;
 import meteordevelopment.meteorclient.gui.widgets.WWidget;
 import meteordevelopment.meteorclient.gui.widgets.containers.WHorizontalList;
 import meteordevelopment.meteorclient.gui.widgets.containers.WVerticalList;
-import meteordevelopment.meteorclient.gui.widgets.input.WTextBox;
 import meteordevelopment.meteorclient.gui.widgets.pressable.WButton;
 import meteordevelopment.meteorclient.pathing.BaritoneUtils;
-import meteordevelopment.meteorclient.settings.BoolSetting;
-import meteordevelopment.meteorclient.settings.IntSetting;
-import meteordevelopment.meteorclient.settings.Setting;
-import meteordevelopment.meteorclient.settings.SettingGroup;
+import meteordevelopment.meteorclient.renderer.ShapeMode;
+import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.systems.modules.misc.AutoReconnect;
@@ -31,6 +29,7 @@ import meteordevelopment.meteorclient.utils.network.MeteorExecutor;
 import meteordevelopment.meteorclient.utils.player.ChatUtils;
 import meteordevelopment.meteorclient.utils.player.InvUtils;
 import meteordevelopment.meteorclient.utils.player.SlotUtils;
+import meteordevelopment.meteorclient.utils.render.color.SettingColor;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.block.entity.*;
 import net.minecraft.client.MinecraftClient;
@@ -64,12 +63,52 @@ public class BetterBaritoneBuild extends Module {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private final SettingGroup sgGeneral = this.settings.getDefaultGroup();
+    private final SettingGroup sgRender = this.settings.createGroup("Render");
 
     private final Setting<Boolean> storageLinkMode = sgGeneral.add(new BoolSetting.Builder()
         .name("storage-link-mode")
         .description("If enabled, all storage blocks you interact with will be linked to this module.")
         .defaultValue(false)
         .build()
+    );
+
+    private final Setting<Boolean> highlightLinkedStorages = sgRender.add(new BoolSetting.Builder()
+        .name("highlight-linked-storages")
+        .description("If enabled, linked storages will be highlighted with a box.")
+        .defaultValue(true)
+        .build()
+    );
+
+    private final Setting<Boolean> invertHighlight = sgRender.add(new BoolSetting.Builder()
+        .name("invert-highlight")
+        .description("If enabled, the highlight will be inverted (i.e. highlighted blocks will not be highlighted).")
+        .defaultValue(false)
+        .visible(highlightLinkedStorages::get)
+        .build()
+    );
+
+    private final Setting<ShapeMode> shapeMode = sgRender.add(new EnumSetting.Builder<ShapeMode>()
+            .name("shape-mode")
+            .description("How the shapes are rendered.")
+            .defaultValue(ShapeMode.Both)
+            .visible(this::isActive)
+            .build()
+    );
+
+    private final Setting<SettingColor> sideColor = sgRender.add(new ColorSetting.Builder()
+            .name("side-color")
+            .description("The side color of the rendering.")
+            .defaultValue(new SettingColor(0, 255, 255, 40))
+            .visible(() -> shapeMode.get().sides())
+            .build()
+    );
+
+    private final Setting<SettingColor> lineColor = sgRender.add(new ColorSetting.Builder()
+            .name("line-color")
+            .description("The line color of the rendering.")
+            .defaultValue(new SettingColor(0, 255, 255, 255))
+            .visible(() -> shapeMode.get().lines())
+            .build()
     );
 
     private final Setting<Boolean> disconnectOnDone = sgGeneral.add(new BoolSetting.Builder()
@@ -163,6 +202,33 @@ public class BetterBaritoneBuild extends Module {
         itemsToFetch.clear();
 
         loadLinkedStorages();
+    }
+
+    @EventHandler
+    private void onRender(Render3DEvent event) {
+        if (!isActive() || mc.world == null || !highlightLinkedStorages.get()) return;
+
+        if (!invertHighlight.get()) {
+            for (LinkedStorage linkedStorage : linkedStorages) {
+                if (linkedStorage == null || linkedStorage.blockPos == null || !mc.world.isPosLoaded(linkedStorage.blockPos))
+                    continue;
+
+                event.renderer.box(linkedStorage.blockPos, sideColor.get(), lineColor.get(), shapeMode.get(), 0);
+            }
+        } else {
+            for (BlockEntity blockEntity : Utils.blockEntities()) {
+                if (!(blockEntity instanceof ShulkerBoxBlockEntity || blockEntity instanceof ChestBlockEntity || blockEntity instanceof BarrelBlockEntity || blockEntity instanceof EnderChestBlockEntity))
+                    continue;
+
+                BlockPos pos = blockEntity.getPos();
+                if (mc.world.isPosLoaded(pos)) {
+                    boolean isLinked = linkedStorages.stream().anyMatch(storage -> storage.blockPos.equals(pos));
+                    if (!isLinked) {
+                        event.renderer.box(pos, sideColor.get(), lineColor.get(), shapeMode.get(), 0);
+                    }
+                }
+            }
+        }
     }
 
     @Override
@@ -275,7 +341,7 @@ public class BetterBaritoneBuild extends Module {
         }
 
         msg = msg.substring(2).trim(); // Remove the "> " part
-        if (msg.startsWith("build")) {
+        if (msg.startsWith("build") || msg.startsWith("litematica")) {
             buildCommand = msg;
             if (debugMode.get()) {
                 ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
