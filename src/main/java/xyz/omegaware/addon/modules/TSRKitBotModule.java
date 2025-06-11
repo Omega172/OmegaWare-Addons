@@ -19,10 +19,13 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import xyz.omegaware.addon.OmegawareAddons;
+import xyz.omegaware.addon.utils.Logger;
 
 import java.io.*;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
+
+import static xyz.omegaware.addon.utils.ServerCheck.isNot6B6T;
 
 public class TSRKitBotModule extends Module {
     public TSRKitBotModule() {
@@ -328,10 +331,9 @@ public class TSRKitBotModule extends Module {
 
     @Override
     public void onActivate() {
-        if (!OmegawareAddons.is6B6T()) {
-            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                .append(Text.literal("The TSR Clan KitBot API module is only intended for use on 6b6t.").formatted(Formatting.RED)));
-            this.toggle();
+        if (isNot6B6T()) {
+            Logger.error("%s is only intended for use on 6b6t.", name);
+            toggle();
             return;
         }
 
