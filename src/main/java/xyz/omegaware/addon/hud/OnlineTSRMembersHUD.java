@@ -61,7 +61,6 @@ public class OnlineTSRMembersHUD extends HudElement {
         new User("Hastur", new String[]{"TheKingHastur", "chmoka90 "}, "Member"),
         new User("J26V5", new String[]{"J26V5"}, "Member"),
         new User("pyro", new String[]{""}, "Member"),
-        new User("Slyyy", new String[]{"TwoFresh4Yea"}, "Member"),
         new User("_kingdom_warrior_", new String[]{"kingdom_warrior"}, "Member"),
         new User("cerejo2", new String[]{"cerejo2", "cerejo222", "cerejo_2"}, "Member"),
         new User("Emily", new String[]{""}, "Member"),
