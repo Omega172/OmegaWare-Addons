@@ -9,11 +9,14 @@ import xyz.omegaware.addon.OmegawareAddons;
 import meteordevelopment.meteorclient.events.game.ReceiveMessageEvent;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.orbit.EventHandler;
+import xyz.omegaware.addon.utils.Logger;
 
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import static xyz.omegaware.addon.utils.ServerCheck.isNot6B6T;
 
 public class TPAAutomationModule extends Module {
     public TPAAutomationModule() {
@@ -96,10 +99,12 @@ public class TPAAutomationModule extends Module {
 
     @Override
     public void onActivate() {
-        if (!OmegawareAddons.is6B6T()) {
-            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                .append(Text.literal("The TPA Automations module is only intended for use on 6b6t.").formatted(Formatting.RED)));
-            this.toggle();
+        Logger.warn("TPAAutomationModule is not yet fully implemented.");
+        Logger.error("TPAAutomationModule is not yet fully implemented.");
+
+        if (isNot6B6T()) {
+            Logger.error("%s is only intended for use on 6b6t.", name.replace("-", " "));
+            toggle();
         }
     }
 

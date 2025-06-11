@@ -74,7 +74,7 @@ public class OmegawareAddons extends MeteorAddon {
         Modules.get().add(new ItemFrameDupeModule());
         Modules.get().add(new BetterStashFinderModule());
 
-        if (System.getenv("env").equals("dev")) {
+        if (FabricLoader.getInstance().isDevelopmentEnvironment()) {
             Modules.get().add(new TSRKitBotModule()); // Is not ready yet
         }
 

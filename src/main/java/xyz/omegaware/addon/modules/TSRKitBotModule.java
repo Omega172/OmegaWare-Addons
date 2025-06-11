@@ -332,7 +332,7 @@ public class TSRKitBotModule extends Module {
     @Override
     public void onActivate() {
         if (isNot6B6T()) {
-            Logger.error("%s is only intended for use on 6b6t.", name);
+            Logger.error("%s is only intended for use on 6b6t.", name.replace("-", " "));
             toggle();
             return;
         }

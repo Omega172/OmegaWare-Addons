@@ -11,6 +11,16 @@ public class Logger {
         .append(Text.literal("OmegaWare").formatted(Formatting.AQUA))
         .append(Text.literal("] ").formatted(Formatting.WHITE));
 
+    private static final Text WARN = Text.empty()
+        .append(Text.literal("[").formatted(Formatting.WHITE))
+        .append(Text.literal("WARNING").formatted(Formatting.YELLOW))
+        .append(Text.literal("] ").formatted(Formatting.WHITE));
+
+    private static final Text ERROR = Text.empty()
+        .append(Text.literal("[").formatted(Formatting.WHITE))
+        .append(Text.literal("ERROR").formatted(Formatting.RED))
+        .append(Text.literal("] ").formatted(Formatting.WHITE));
+
     /**
      * Sends a message to the chat with the given format string and arguments, prefixed with the OmegaWare prefix.
      * <pre>
@@ -27,11 +37,11 @@ public class Logger {
      * The message will be yellow in color.
      * <pre>
      * Example:
-     * Logger.warn( %d %sdiamonds went missing", 5, Formatting.AQUA);
+     * Logger.warn(%d %sdiamonds went missing", 5, Formatting.AQUA);
      * </pre>
      */
     public static void warn(String message, Object... args) {
-        ChatUtils.sendMsg(PREFIX.copy().append(Text.literal(String.format(message, args))).formatted(Formatting.YELLOW));
+        ChatUtils.sendMsg(PREFIX.copy().append(WARN).append(Text.literal(String.format(message, args))).formatted(Formatting.YELLOW));
     }
 
     /**
@@ -43,6 +53,6 @@ public class Logger {
      * </pre>
      */
     public static void error(String message, Object... args) {
-        ChatUtils.sendMsg(PREFIX.copy().append(Text.literal(String.format(message, args))).formatted(Formatting.RED));
+        ChatUtils.sendMsg(PREFIX.copy().append(ERROR).append(Text.literal(String.format(message, args))).formatted(Formatting.RED));
     }
 }

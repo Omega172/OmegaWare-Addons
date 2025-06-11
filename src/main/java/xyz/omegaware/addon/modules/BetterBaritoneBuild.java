@@ -46,6 +46,7 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
 import xyz.omegaware.addon.OmegawareAddons;
+import xyz.omegaware.addon.utils.Logger;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -56,7 +57,7 @@ import java.util.List;
 
 public class BetterBaritoneBuild extends Module {
     public BetterBaritoneBuild() {
-        super(OmegawareAddons.CATEGORY, "Better Baritone Build", "Enable this module to enhance Baritone's building capabilities with linked storage and item fetching features.");
+        super(OmegawareAddons.CATEGORY, "better-baritone-build", "Enable this module to enhance Baritone's building capabilities with linked storage and item fetching features.");
     }
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -211,10 +212,8 @@ public class BetterBaritoneBuild extends Module {
     @Override
     public void onActivate() {
         if (!BaritoneUtils.IS_AVAILABLE) {
-            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                .append(Text.literal("Error: ").formatted(Formatting.RED))
-                .append(Text.literal("Baritone is not available!").formatted(Formatting.WHITE)));
-            this.toggle();
+            Logger.error("Baritone is not available!");
+            toggle();
             return;
         }
 
@@ -265,12 +264,10 @@ public class BetterBaritoneBuild extends Module {
 
         WButton printBtn = theme.button("Print Linked Storages");
         printBtn.action = () -> {
-            MutableText msg = OmegawareAddons.PREFIX.copy()
-                .append(Text.literal("Linked Storages: ").formatted(Formatting.GREEN));
+            StringBuilder sb = new StringBuilder();
+            linkedStorages.forEach(linkedStorage -> sb.append(String.format("X=%s, Y=%s, Z=%s\n", linkedStorage.blockPos.getX(), linkedStorage.blockPos.getY(), linkedStorage.blockPos.getZ())));
 
-            linkedStorages.forEach(linkedStorage -> msg.append(Text.literal(String.format("X=%s, Y=%s, Z=%s\n", linkedStorage.blockPos.getX(), linkedStorage.blockPos.getY(), linkedStorage.blockPos.getZ())).formatted(Formatting.WHITE)));
-
-            ChatUtils.sendMsg(msg);
+            Logger.info("Linked Storages:\n%s", sb.toString());
         };
         hList.add(printBtn);
 
@@ -278,7 +275,7 @@ public class BetterBaritoneBuild extends Module {
         clearBtn.action = () -> {
             linkedStorages.clear();
             saveLinkedStorages();
-            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy().append(Text.literal("Linked Storages cleared!").formatted(Formatting.GREEN)));
+            Logger.info("Linked Storages cleared!");
         };
         hList.add(clearBtn);
 
@@ -292,9 +289,7 @@ public class BetterBaritoneBuild extends Module {
 
             saveHome();
 
-            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                .append(Text.literal("Home point set to: ").formatted(Formatting.GREEN))
-                .append(Text.literal(String.format("X=%s, Y=%s, Z=%s", home.getX(), home.getY(), home.getZ())).formatted(Formatting.WHITE)));
+            Logger.info("%sHome point set to:%s X=%s, Y=%s, Z=%s", Formatting.GREEN, Formatting.WHITE, home.getX(), home.getY(), home.getZ());
         };
         hList.add(setHomeBtn);
 
@@ -323,8 +318,7 @@ public class BetterBaritoneBuild extends Module {
         if (!isActive() || mc.world == null || mc.player == null || !homeIfStuck.get()) return;
         if (mc.player.getBlockPos().equals(home)) {
             if (debugMode.get()) {
-                ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Player is at home point.").formatted(Formatting.GREEN)));
+                Logger.info("%sPlayer is at home point.", Formatting.GREEN);
             }
             ticksStuck = 0; // Reset the stuck counter if the player is at home
             lastBlockPos = null; // Reset the last block position
@@ -333,8 +327,7 @@ public class BetterBaritoneBuild extends Module {
 
         if (home == null) {
             // Yell at the player to set a home point
-            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Please set a home point using the \"Set Home\" button!").formatted(Formatting.RED)));
+            Logger.error("Please set a home point using the \"Set Home\" button!");
             homeIfStuck.set(false); // Disable the setting if no home point is set
             return;
         }
@@ -355,18 +348,13 @@ public class BetterBaritoneBuild extends Module {
         }
 
         if (debugMode.get()) {
-            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                .append(Text.literal("Baritone is stuck, ticks: ").formatted(Formatting.RED))
-                .append(Text.literal(String.valueOf(ticksStuck)).formatted(Formatting.WHITE)));
-
-            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal(String.format("Should return home: %s", ticksStuck >= homeIfStuckTimeout.get() * 20))).formatted(Formatting.GREEN));
+            Logger.warn("Baritone is stuck, ticks: %d", ticksStuck);
+            Logger.info("Should return home: %b", ticksStuck >= homeIfStuckTimeout.get() * 20);
         }
 
         // 1 second = 20 ticks
         if (ticksStuck >= homeIfStuckTimeout.get() * 20) {
-            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Baritone is stuck, returning to home point...").formatted(Formatting.RED)));
+            Logger.error("Baritone is stuck, returning to home point...");
 
             ticksStuck = 0; // Reset the stuck counter
             lastBlockPos = mc.player.getBlockPos(); // Update the last block position
@@ -415,28 +403,20 @@ public class BetterBaritoneBuild extends Module {
             Item item = Registries.ITEM.get(identifier).asItem();
 
             if (item == null) {
-                if (debugMode.get()) {
-                    ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                            .append(Text.literal("Item not found: ").formatted(Formatting.RED))
-                            .append(Text.literal(blockName).formatted(Formatting.WHITE)));
-                }
+                if (debugMode.get()) Logger.error("Item not found: %s%s", Formatting.WHITE, blockName);
                 return;
             }
 
             if (itemsToFetch.stream().anyMatch(storageItem -> storageItem.item.equals(item))) {
                 if (debugMode.get()) {
-                    ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                        .append(Text.literal("Item already in queue: ").formatted(Formatting.YELLOW))
-                        .append(Text.literal(item.getName().getString()).formatted(Formatting.WHITE)));
+                    Logger.warn("Item already in queue: %s%s", Formatting.WHITE, item.getName().getString());
                 }
                 return;
             }
 
             LinkedStorage linkedStorage = findItem(item);
             if (linkedStorage == null) {
-                ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                        .append(Text.literal("No linked storage contains the item: ").formatted(Formatting.RED))
-                        .append(Text.literal(item.getName().getString()).formatted(Formatting.WHITE)));
+                Logger.error("No linked storage contains the item: %s%s", Formatting.WHITE, item.getName().getString());
 
                 if (disconnectOnError.get()) {
                     AutoReconnect autoReconnect = Modules.get().get(meteordevelopment.meteorclient.systems.modules.misc.AutoReconnect.class);
@@ -444,7 +424,7 @@ public class BetterBaritoneBuild extends Module {
                         autoReconnect.toggle();
                     }
 
-                    String prefix = OmegawareAddons.PREFIX.getString();
+                    String prefix = Logger.PREFIX.getString();
                     MutableText text = Text.literal(String.format("%s%s%s%s %s", Formatting.GRAY, Formatting.BLUE, prefix.substring(0, prefix.length() - 1), Formatting.GRAY, Formatting.RED) + String.format("No linked storage contains the item: %s\n", item.getName().getString()));
 
                     disconnectOnError.set(false); // Disable the setting to prevent infinite disconnects
@@ -466,8 +446,7 @@ public class BetterBaritoneBuild extends Module {
 
         if (msg.contains("done building")) {
             if (debugMode.get()) {
-                ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Baritone has finished building!").formatted(Formatting.GREEN)));
+                Logger.info("Baritone has finished building!");
             }
 
             if (disconnectOnDone.get()) {
@@ -476,7 +455,7 @@ public class BetterBaritoneBuild extends Module {
                     autoReconnect.toggle();
                 }
 
-                String prefix = OmegawareAddons.PREFIX.getString();
+                String prefix = Logger.PREFIX.getString();
                 MutableText text = Text.literal(String.format("%s%s%s%s %s", Formatting.GRAY, Formatting.BLUE, prefix.substring(0, prefix.length() - 1), Formatting.GRAY, Formatting.RED) + "Baritone has finished building!");
 
                 ClientPlayNetworkHandler networkHandler = mc.getNetworkHandler();
@@ -491,9 +470,7 @@ public class BetterBaritoneBuild extends Module {
         if (msg.startsWith("build") || msg.startsWith("litematica")) {
             buildCommand = msg;
             if (debugMode.get()) {
-                ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Build command captured: ").formatted(Formatting.GREEN))
-                    .append(Text.literal(buildCommand).formatted(Formatting.WHITE)));
+                Logger.info("Build command captured: %s%s", Formatting.WHITE, buildCommand);
             }
             return;
         }
@@ -503,8 +480,7 @@ public class BetterBaritoneBuild extends Module {
             eventQueue.clear();
             itemsToFetch.clear();
 
-            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Stop received.").formatted(Formatting.GREEN)));
+            Logger.info("Stop received.");
         }
     }
 
@@ -528,7 +504,7 @@ public class BetterBaritoneBuild extends Module {
             itemsToFetch.forEach(storageItem -> MeteorExecutor.execute(() -> {
                 if (debugMode.get()) {
                     String msg = String.format("Fetching %s stacks of %s from linked storage at X=%s, Y=%s, Z=%s", storageItem.stacks, storageItem.item.getName().getString(), storageItem.linkedStorage.blockPos.getX(), storageItem.linkedStorage.blockPos.getY(), storageItem.linkedStorage.blockPos.getZ());
-                    ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy().append(Text.literal(msg).formatted(Formatting.GREEN)));
+                    Logger.info(msg);
                 }
                 moveSlots(storageItem, mc.player.currentScreenHandler);
             }));
@@ -553,43 +529,33 @@ public class BetterBaritoneBuild extends Module {
             }
         }
 
-        if (storageLinkMode.get()) {
-            if (blockEntity instanceof ShulkerBoxBlockEntity || blockEntity instanceof ChestBlockEntity || blockEntity instanceof BarrelBlockEntity || blockEntity instanceof EnderChestBlockEntity) {
-                for (LinkedStorage linkedStorage : linkedStorages) {
-                    if (linkedStorage.blockPos.equals(lastBlockInteractPos)) {
-                        lastBlockInteractPos = null;
-                        linkedStorages.remove(linkedStorage);
+        if (!storageLinkMode.get()) return;
+        if (blockEntity instanceof ShulkerBoxBlockEntity || blockEntity instanceof ChestBlockEntity || blockEntity instanceof BarrelBlockEntity || blockEntity instanceof EnderChestBlockEntity) {
+            for (LinkedStorage linkedStorage : linkedStorages) {
+                if (linkedStorage.blockPos.equals(lastBlockInteractPos)) {
+                    lastBlockInteractPos = null;
+                    linkedStorages.remove(linkedStorage);
 
-                        LinkedStorage newStorage = indexStorage(mc.player.currentScreenHandler, blockEntity.getPos());
-                        if (newStorage != null) {
-                            linkedStorages.add(newStorage);
-                            saveLinkedStorages();
-                        }
+                    LinkedStorage newStorage = indexStorage(mc.player.currentScreenHandler, blockEntity.getPos());
+                    if (newStorage == null) return;
 
-                        return;
-                    }
+                    linkedStorages.add(newStorage);
+                    saveLinkedStorages();
                 }
-                lastBlockInteractPos = null;
-
-                LinkedStorage linkedStorage = indexStorage(mc.player.currentScreenHandler, blockEntity.getPos());
-                if (linkedStorage == null) return;
-
-                if (linkedStorage.inventory.isEmpty()) {
-                    if (debugMode.get()) {
-                        ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                            .append(Text.literal("No items found in the linked storage!").formatted(Formatting.RED)));
-                    }
-                    return;
-                }
-                linkedStorages.add(linkedStorage);
-                saveLinkedStorages();
-
-
-                MutableText msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Better Baritone Build: ").formatted(Formatting.GREEN))
-                    .append(Text.literal(String.format("Linked Storage located at X=%s, Y=%s, Z=%s", blockEntity.getPos().getX(), blockEntity.getPos().getY(), blockEntity.getPos().getZ())).formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
             }
+            lastBlockInteractPos = null;
+
+            LinkedStorage linkedStorage = indexStorage(mc.player.currentScreenHandler, blockEntity.getPos());
+            if (linkedStorage == null) return;
+
+            if (linkedStorage.inventory.isEmpty()) {
+                if (debugMode.get()) Logger.error("No items found in the linked storage!");
+                return;
+            }
+            linkedStorages.add(linkedStorage);
+            saveLinkedStorages();
+
+            Logger.info("Linked Storage located at X=%s, Y=%s, Z=%s", blockEntity.getPos().getX(), blockEntity.getPos().getY(), blockEntity.getPos().getZ());
         }
     }
 
@@ -750,11 +716,8 @@ public class BetterBaritoneBuild extends Module {
     private void pathToPos(BlockPos blockPos) {
         if (mc.player == null || mc.world == null) return;
 
-        if (debugMode.get()) {
-            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                .append(Text.literal("Navigating to: ").formatted(Formatting.GREEN))
-                .append(Text.literal(String.format("X=%s, Y=%s, Z=%s", blockPos.getX(), blockPos.getY(), blockPos.getZ())).formatted(Formatting.WHITE)));
-        }
+        if (debugMode.get()) Logger.info("%sNavigating to:%s X=%s, Y=%s, Z=%s", Formatting.GREEN, Formatting.WHITE, blockPos.getX(), blockPos.getY(), blockPos.getZ());
+
 
         if (!ignoreY.get()) {
             baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(blockPos));
@@ -784,9 +747,7 @@ public class BetterBaritoneBuild extends Module {
     private void pathToLinkedStorage(Item item, LinkedStorage linkedStorage) {
         if (mc.player == null || mc.interactionManager == null) return;
 
-        ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-            .append(Text.literal("Navigating to storage containing: ").formatted(Formatting.GREEN))
-            .append(Text.literal(item.getName().getString()).formatted(Formatting.WHITE)));
+        Logger.info("%sNavigating to storage containing:%s %s", Formatting.GREEN, Formatting.WHITE, item.getName().getString());
 
         eventQueue.add(new Event(true, () -> pathToPos(linkedStorage.blockPos)));
 
