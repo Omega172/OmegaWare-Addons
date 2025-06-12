@@ -29,6 +29,7 @@ import net.minecraft.util.Formatting;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
 import xyz.omegaware.addon.OmegawareAddons;
+import xyz.omegaware.addon.utils.Logger;
 
 import java.io.*;
 import java.util.ArrayList;
@@ -149,7 +150,7 @@ public class BetterStashFinderModule extends Module {
                     autoReconnect.toggle();
                 }
 
-                String prefix = OmegawareAddons.PREFIX.getString();
+                String prefix = Logger.PREFIX.getString();
                 MutableText text = Text.literal(String.format("%s%s%s%s %s", Formatting.GRAY, Formatting.BLUE, prefix.substring(0, prefix.length() - 1), Formatting.GRAY, Formatting.RED) + String.format("Found stash at %s, %s.", chunk.x, chunk.z)).append("\n");
 
                 disconnectOnStashFound.set(false); // Disable the setting to prevent infinite disconnects

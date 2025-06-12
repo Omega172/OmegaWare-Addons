@@ -8,7 +8,6 @@ import meteordevelopment.meteorclient.gui.widgets.containers.WHorizontalList;
 import meteordevelopment.meteorclient.gui.widgets.containers.WVerticalList;
 import meteordevelopment.meteorclient.gui.widgets.pressable.WButton;
 import meteordevelopment.meteorclient.settings.*;
-import meteordevelopment.meteorclient.utils.player.ChatUtils;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import xyz.omegaware.addon.OmegawareAddons;
@@ -227,10 +226,7 @@ public class ChatFilterModule extends Module {
 
         WButton btn = theme.button("Print number of filtered messages");
         btn.action = () -> {
-            Text msg = OmegawareAddons.PREFIX.copy()
-                .append(Text.literal("Total Filtered Messages: ").formatted(Formatting.GREEN))
-                .append(Text.literal(filteredCount.toString()).formatted(Formatting.WHITE));
-            ChatUtils.sendMsg(msg);
+            Logger.info("%sTotal Filtered Messages: %s%d", Formatting.GREEN, Formatting.WHITE, filteredCount);
         };
         hList.add(btn);
 

@@ -195,10 +195,7 @@ public class TSRKitBotModule extends Module {
         if (apiKey != null && !apiKey.isEmpty()) return true;
 
         if (DiscordIPC.getUser() == null) {
-            Text msg = OmegawareAddons.PREFIX.copy()
-                .append(Text.literal("Error: ").formatted(Formatting.RED))
-                .append(Text.literal("You must have the Discord Presence module enabled").formatted(Formatting.WHITE));
-            ChatUtils.sendMsg(msg);
+            Logger.error("You must have the Discord Presence module enabled");
             return false;
         }
 
@@ -216,44 +213,28 @@ public class TSRKitBotModule extends Module {
         if (response.statusCode() == 200) {
             String message = response.body().get("message").getAsString();
             if (message != null && message.equals("Retrieval code sent to your Discord DMs.")) {
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Message: ").formatted(Formatting.GREEN))
-                    .append(Text.literal(message).formatted(Formatting.WHITE))
-                    .append(Text.literal("Grab the code and use the command .auth <CODE>").formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.info("%sMessage: %s%sGrab the code and use the command .auth <CODE>", Formatting.GREEN, Formatting.WHITE, message);
                 return false;
             }
 
             // print api key to chat
             if (response.body().has("api_key")) {
                 apiKey = response.body().get("api_key").getAsString();
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Set API Key: ").formatted(Formatting.GREEN))
-                    .append(Text.literal(apiKey).formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.info("%sSet API Key:%s %s", Formatting.GREEN, Formatting.WHITE, apiKey);
 
                 saveApiKey(apiKey);
             } else {
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal("API Key not found.").formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.error("API Key not found.");
             }
 
             return apiKey != null && !apiKey.isEmpty();
         } else {
             if (response.body() == null) {
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal("No response from server.").formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.error("No response from server.");
                 return false;
             }
 
-            Text msg = OmegawareAddons.PREFIX.copy()
-                .append(Text.literal("Error: ").formatted(Formatting.RED))
-                .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
-            ChatUtils.sendMsg(msg);
+            Logger.error("%s", response.body().get("error").getAsString());
             return false;
         }
     }
@@ -271,9 +252,7 @@ public class TSRKitBotModule extends Module {
         if (response.statusCode() == 200) {
             JsonArray orders = response.body().getAsJsonArray("orders");
             if (orders.isEmpty()) {
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("No order history.").formatted(Formatting.GREEN));
-                ChatUtils.sendMsg(msg);
+                Logger.info("%sNo order history.", Formatting.GREEN);
                 return;
             }
 
@@ -297,33 +276,17 @@ public class TSRKitBotModule extends Module {
                 }
                 if (!isValidStatus) continue;
 
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Order ID: ").formatted(Formatting.GREEN))
-                    .append(Text.literal(orderId).formatted(Formatting.WHITE))
-                    .append(Text.literal("\n | ").formatted(Formatting.WHITE))
-                    .append(Text.literal("Status: ").formatted(Formatting.GREEN))
-                    .append(Text.literal(status).formatted(Formatting.WHITE))
-                    .append(Text.literal("\n | ").formatted(Formatting.WHITE))
-                    .append(Text.literal("Request Type: ").formatted(Formatting.GREEN))
-                    .append(Text.literal(requestType).formatted(Formatting.WHITE))
-                    .append(Text.literal("\n | ").formatted(Formatting.WHITE))
-                    .append(Text.literal("Quantity: ").formatted(Formatting.GREEN))
-                    .append(Text.literal(quantity).formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.info("%sOrder ID:%s %s\n | %sStatus:%s %s\n | %sRequest Type:%s %s\n | %sQuantity:%s %s",
+                        Formatting.GREEN, Formatting.WHITE, orderId, Formatting.GREEN, Formatting.WHITE, status,
+                        Formatting.GREEN, Formatting.WHITE, requestType, Formatting.GREEN, Formatting.WHITE, quantity);
             }
         } else {
             if (response.body() == null) {
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal("No response from server.").formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.error("No response from server.");
                 return;
             }
 
-            Text msg = OmegawareAddons.PREFIX.copy()
-                .append(Text.literal("Error: ").formatted(Formatting.RED))
-                .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
-            ChatUtils.sendMsg(msg);
+            Logger.error("%s", response.body().get("error").getAsString());
         }
     }
 
@@ -360,23 +323,14 @@ public class TSRKitBotModule extends Module {
             HttpResponse<JsonObject> response = request.sendJsonResponse(JsonObject.class);
 
             if (response.statusCode() == 200) {
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Balance: ").formatted(Formatting.GREEN))
-                    .append(Text.literal(response.body().get("credits").getAsString()).formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.info("%sBalance:%s %s ",Formatting.GREEN, Formatting.WHITE, response.body().get("credits").getAsString());
             } else {
                 if (response.body() == null) {
-                    Text msg = OmegawareAddons.PREFIX.copy()
-                        .append(Text.literal("Error: ").formatted(Formatting.RED))
-                        .append(Text.literal("No response from server.").formatted(Formatting.WHITE));
-                    ChatUtils.sendMsg(msg);
+                    Logger.error("No response from server.");
                     return;
                 }
 
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.error("%s", response.body().get("error").getAsString());
             }
         };
         hList.add(getBalanceButton);
@@ -394,29 +348,17 @@ public class TSRKitBotModule extends Module {
 
             if (response.statusCode() == 200) {
                 if (response.body().has("message")) {
-                    Text msg = OmegawareAddons.PREFIX.copy()
-                        .append(Text.literal("Message: ").formatted(Formatting.GREEN))
-                        .append(Text.literal(response.body().get("message").getAsString()).formatted(Formatting.WHITE));
-                    ChatUtils.sendMsg(msg);
+                    Logger.info("%sMessage:%s %s", Formatting.WHITE, Formatting.GREEN, response.body().get("message").getAsString());
                 } else {
-                    Text msg = OmegawareAddons.PREFIX.copy()
-                        .append(Text.literal("Queue Position: ").formatted(Formatting.GREEN))
-                        .append(Text.literal(response.body().get("position").getAsString()).formatted(Formatting.WHITE));
-                    ChatUtils.sendMsg(msg);
+                    Logger.info("%sQueue Position:%s %s", Formatting.GREEN, Formatting.WHITE, response.body().get("position").getAsString());
                 }
             } else {
                 if (response.body() == null) {
-                    Text msg = OmegawareAddons.PREFIX.copy()
-                        .append(Text.literal("Error: ").formatted(Formatting.RED))
-                        .append(Text.literal("No response from server.").formatted(Formatting.WHITE));
-                    ChatUtils.sendMsg(msg);
+                    Logger.error("No response from server.");
                     return;
                 }
 
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.error("%s", response.body().get("error").getAsString());
             }
         };
         hList.add(getQueuePositionButton);
@@ -430,18 +372,12 @@ public class TSRKitBotModule extends Module {
             if (!getIsLinked()) return;
             int kitTotal = pvpKit.get() + cpvpKit.get() + refillKit.get() + griefKit.get() + hunterKit.get() + mapartKit.get() + highwayKit.get() + redstoneKit.get() + buildKit.get() + build2Kit.get() + build3Kit.get() + build4Kit.get() + build5Kit.get() + build6Kit.get() + toolsKit.get() + totemKit.get() + censoredKit.get();
             if (kitTotal > 27) {
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal("You can only order a maximum of 27 kits.").formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.error("You can only order a maximum of 27 kits.");
                 return;
             }
 
-            if (kitTotal == 0 || kitTotal < 0) {
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal("You must select at least 1 kit.").formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+            if (kitTotal <= 0 ) {
+                Logger.error("You must select at least 1 kit.");
                 return;
             }
 
@@ -597,39 +533,21 @@ public class TSRKitBotModule extends Module {
             HttpResponse<JsonObject> response = request.sendJsonResponse(JsonObject.class);
             if (response.statusCode() == 200) {
                 if (response.body().has("message")) {
-                    Text msg = OmegawareAddons.PREFIX.copy()
-                        .append(Text.literal("Message: ").formatted(Formatting.GREEN))
-                        .append(Text.literal(response.body().get("message").getAsString()).formatted(Formatting.WHITE));
-                    ChatUtils.sendMsg(msg);
+                    Logger.info("%sMessage:%s %s", Formatting.GREEN, Formatting.WHITE,response.body().get("message").getAsString());
                     return;
                 } else if (response.body().has("error")) {
-                    Text msg = OmegawareAddons.PREFIX.copy()
-                        .append(Text.literal("Error: ").formatted(Formatting.RED))
-                        .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
-                    ChatUtils.sendMsg(msg);
+                    Logger.error("%s", response.body().get("error").getAsString());
                     return;
                 }
 
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Order Placed: ").formatted(Formatting.GREEN))
-                    .append(Text.literal(response.body().get("order_id").getAsString()).formatted(Formatting.WHITE))
-                    .append(Text.literal(" | ").formatted(Formatting.WHITE))
-                    .append(Text.literal("Priority: ").formatted(Formatting.GREEN))
-                    .append(Text.literal(response.body().get("priority").getAsString()).formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.info("%sOrder Placed:%s %s | %sPriority:%s %s", Formatting.GREEN, Formatting.WHITE, response.body().get("order_id").getAsString(), Formatting.GREEN, Formatting.WHITE, response.body().get("priority").getAsString());
             } else {
                 if (response.body() == null) {
-                    Text msg = OmegawareAddons.PREFIX.copy()
-                        .append(Text.literal("Error: ").formatted(Formatting.RED))
-                        .append(Text.literal("No response from server.").formatted(Formatting.WHITE));
-                    ChatUtils.sendMsg(msg);
+                    Logger.error("No response from server.");
                     return;
                 }
 
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.error("%s", Formatting.WHITE, response.body().get("error").getAsString());
             }
         };
         hList2.add(orderButton);
@@ -664,23 +582,14 @@ public class TSRKitBotModule extends Module {
             HttpResponse<JsonObject> response = request.sendJsonResponse(JsonObject.class);
 
             if (response.statusCode() == 200) {
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Cancel All Orders: ").formatted(Formatting.GREEN))
-                    .append(Text.literal(response.body().get("message").getAsString()).formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.info("%sCancel All Orders:%s %s", Formatting.GREEN, Formatting.WHITE, response.body().get("message").getAsString());
             } else {
                 if (response.body() == null) {
-                    Text msg = OmegawareAddons.PREFIX.copy()
-                        .append(Text.literal("Error: ").formatted(Formatting.RED))
-                        .append(Text.literal("No response from server.").formatted(Formatting.WHITE));
-                    ChatUtils.sendMsg(msg);
+                    Logger.error("No response from server.");
                     return;
                 }
 
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.error("%s", Formatting.WHITE, response.body().get("error").getAsString());
             }
         };
         hList3.add(cancelAllButton);
@@ -694,18 +603,12 @@ public class TSRKitBotModule extends Module {
             if (!getIsLinked()) return;
 
             if (textBox.get().isEmpty()) {
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal("Please enter an order ID.").formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.error("Please enter an order ID.");
                 return;
             }
 
             if (!textBox.get().matches("\\d+")) {
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal("Order ID must be a number.").formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.error("Order ID must be a number.");
                 return;
             }
 
@@ -720,23 +623,14 @@ public class TSRKitBotModule extends Module {
             HttpResponse<JsonObject> response = request.sendJsonResponse(JsonObject.class);
 
             if (response.statusCode() == 200) {
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Order Cancelled: ").formatted(Formatting.GREEN))
-                    .append(Text.literal(response.body().get("order_id").getAsString()).formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.info("%sOrder Cancelled:%s %s", Formatting.GREEN, Formatting.WHITE, response.body().get("order_id").getAsString());
             } else {
                 if (response.body() == null) {
-                    Text msg = OmegawareAddons.PREFIX.copy()
-                        .append(Text.literal("Error: ").formatted(Formatting.RED))
-                        .append(Text.literal("No response from server.").formatted(Formatting.WHITE));
-                    ChatUtils.sendMsg(msg);
+                    Logger.error("No response from server");
                     return;
                 }
 
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.error("%s", response.body().get("error").getAsString());
             }
         };
         hList3.add(cancelButton);
@@ -758,26 +652,17 @@ public class TSRKitBotModule extends Module {
             if (!getIsLinked()) return;
 
             if (amountTextBox.get().isEmpty() || targetTextBox.get().isEmpty()) {
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal("Please enter an amount and a target Discord ID.").formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.error("Please enter an amount and a target Discord ID.");
                 return;
             }
 
             if (!amountTextBox.get().matches("\\d+")) {
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal("Amount must be a number.").formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.error("Amount must be a number.");
                 return;
             }
 
             if (Integer.parseInt(amountTextBox.get()) <= 0) {
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal("Amount must be at least 1").formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.error("Amount must be at least 1");
                 return;
             }
 
@@ -796,33 +681,20 @@ public class TSRKitBotModule extends Module {
 
             if (response.statusCode() == 200) {
                 if (response.body().has("error")) {
-                    Text msg = OmegawareAddons.PREFIX.copy()
-                        .append(Text.literal("Error: ").formatted(Formatting.RED))
-                        .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
-                    ChatUtils.sendMsg(msg);
+                    Logger.error("%s", response.body().get("error").getAsString());
                     return;
                 }
 
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Tokens Sent: ").formatted(Formatting.GREEN))
-                    .append(Text.literal(response.body().get("message").getAsString()).formatted(Formatting.WHITE))
-                    .append(Text.literal(" | ").formatted(Formatting.WHITE))
-                    .append(Text.literal("New Balance: ").formatted(Formatting.GREEN))
-                    .append(Text.literal(response.body().get("from_balance").getAsString()).formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.info("%sTokens Sent:%s %s | %sNew Balance:%s %s",
+                    Formatting.GREEN, Formatting.WHITE, response.body().get("message").getAsString(),
+                    Formatting.GREEN, Formatting.WHITE, response.body().get("from_balance").getAsString());
             } else {
                 if (response.body() == null) {
-                    Text msg = OmegawareAddons.PREFIX.copy()
-                        .append(Text.literal("Error: ").formatted(Formatting.RED))
-                        .append(Text.literal("No response from server.").formatted(Formatting.WHITE));
-                    ChatUtils.sendMsg(msg);
+                    Logger.error("No response from server.");
                     return;
                 }
 
-                Text msg = OmegawareAddons.PREFIX.copy()
-                    .append(Text.literal("Error: ").formatted(Formatting.RED))
-                    .append(Text.literal(response.body().get("error").getAsString()).formatted(Formatting.WHITE));
-                ChatUtils.sendMsg(msg);
+                Logger.error("%s", response.body().get("error").getAsString());
             }
         };
         hList4.add(sendTokensButton);

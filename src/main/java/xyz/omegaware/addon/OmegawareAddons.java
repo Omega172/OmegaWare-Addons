@@ -30,36 +30,11 @@ public class OmegawareAddons extends MeteorAddon {
     public static ModMetadata MOD_META;
     public static final Logger LOG = LogUtils.getLogger();
     public static final Category CATEGORY = new Category("OmegaWare");
-    @SuppressWarnings("unused")
     public static final HudGroup HUD_GROUP = new HudGroup("OmegaWare");
 
     public static File GetConfigFile(String key, String filename) {
         return new File(new File(new File(new File(MeteorClient.FOLDER, "omegaware"), key), Utils.getFileWorldName()), filename);
     }
-
-    public static String getCurrentServerAddress() {
-        ServerInfo server = MinecraftClient.getInstance().getCurrentServerEntry();
-        if (server == null) {
-            return "singleplayer";
-        }
-
-        if (server.address == null || server.address.isEmpty()) {
-            return "unknown";
-        }
-
-        return MinecraftClient.getInstance().getCurrentServerEntry().address;
-    }
-
-    @SuppressWarnings("BooleanMethodIsAlwaysInverted")
-    public static boolean is6B6T() {
-        String serverAddress = getCurrentServerAddress();
-        return serverAddress.contains("6b6t.org");
-    }
-
-    public static final Text PREFIX = Text.empty()
-        .append(Text.literal("[").formatted(Formatting.WHITE))
-        .append(Text.literal("OmegaWare").formatted(Formatting.AQUA))
-        .append(Text.literal("] ").formatted(Formatting.WHITE));
 
     @Override
     public void onInitialize() {
