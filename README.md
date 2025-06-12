@@ -31,6 +31,7 @@
 - **Better Baritone Build**
   - Add some improvements to the baritone build command
   - Can refill items from any storage block
+  - Please use [this fork of baritone](https://github.com/Omega172/baritone-staircase) which fixes staircase building and carpet issues
   - I recommend to use this with [Litematica Printer](https://github.com/aleksilassila/litematica-printer) or [Meteor Litematica Printer](https://github.com/kkllffaa/meteor-litematica-printer)
   - Vide tutorial on how to use it [here](https://youtu.be/mpK_ld8JH34)
 
