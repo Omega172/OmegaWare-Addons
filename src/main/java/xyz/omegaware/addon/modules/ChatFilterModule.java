@@ -8,13 +8,13 @@ import meteordevelopment.meteorclient.gui.widgets.containers.WHorizontalList;
 import meteordevelopment.meteorclient.gui.widgets.containers.WVerticalList;
 import meteordevelopment.meteorclient.gui.widgets.pressable.WButton;
 import meteordevelopment.meteorclient.settings.*;
-import meteordevelopment.meteorclient.utils.player.ChatUtils;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import xyz.omegaware.addon.OmegawareAddons;
 import meteordevelopment.meteorclient.events.game.ReceiveMessageEvent;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.orbit.EventHandler;
+import xyz.omegaware.addon.utils.Logger;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -22,6 +22,8 @@ import java.io.IOException;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.util.List;
+
+import static xyz.omegaware.addon.utils.ServerCheck.isNot6B6T;
 
 public class ChatFilterModule extends Module {
     public ChatFilterModule() {
@@ -140,10 +142,9 @@ public class ChatFilterModule extends Module {
 
     @Override
     public void onActivate() {
-        if (!OmegawareAddons.is6B6T()) {
-            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                .append(Text.literal("The 6B6T Chat Filter module is only intended for use on 6b6t.").formatted(Formatting.RED)));
-            this.toggle();
+        if (isNot6B6T()) {
+            Logger.error("%s is only intended for use on 6b6t.", name.replace("-", " "));
+            toggle();
             return;
         }
 
@@ -225,10 +226,7 @@ public class ChatFilterModule extends Module {
 
         WButton btn = theme.button("Print number of filtered messages");
         btn.action = () -> {
-            Text msg = OmegawareAddons.PREFIX.copy()
-                .append(Text.literal("Total Filtered Messages: ").formatted(Formatting.GREEN))
-                .append(Text.literal(filteredCount.toString()).formatted(Formatting.WHITE));
-            ChatUtils.sendMsg(msg);
+            Logger.info("%sTotal Filtered Messages: %s%d", Formatting.GREEN, Formatting.WHITE, filteredCount);
         };
         hList.add(btn);
 
