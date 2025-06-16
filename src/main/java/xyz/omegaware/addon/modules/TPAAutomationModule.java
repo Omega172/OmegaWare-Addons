@@ -3,17 +3,19 @@ package xyz.omegaware.addon.modules;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.friends.Friends;
 import meteordevelopment.meteorclient.utils.player.ChatUtils;
-import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import xyz.omegaware.addon.OmegawareAddons;
 import meteordevelopment.meteorclient.events.game.ReceiveMessageEvent;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.orbit.EventHandler;
+import xyz.omegaware.addon.utils.Logger;
 
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import static xyz.omegaware.addon.utils.ServerCheck.isNot6B6T;
 
 public class TPAAutomationModule extends Module {
     public TPAAutomationModule() {
@@ -96,10 +98,9 @@ public class TPAAutomationModule extends Module {
 
     @Override
     public void onActivate() {
-        if (!OmegawareAddons.is6B6T()) {
-            ChatUtils.sendMsg(OmegawareAddons.PREFIX.copy()
-                .append(Text.literal("The TPA Automations module is only intended for use on 6b6t.").formatted(Formatting.RED)));
-            this.toggle();
+        if (isNot6B6T()) {
+            Logger.error("%s is only intended for use on 6b6t.", name.replace("-", " "));
+            toggle();
         }
     }
 
@@ -134,38 +135,19 @@ public class TPAAutomationModule extends Module {
 
         String username = matcher.group(1);
 
-        if (printTpaDetected.get()) {
-            Text tpaDetected = OmegawareAddons.PREFIX.copy()
-                .append(Text.literal("TPA Detected: ").formatted(Formatting.RED))
-                .append(Text.literal(username).formatted(Formatting.WHITE))
-                .append(Text.literal("!").formatted(Formatting.WHITE));
-
-            ChatUtils.sendMsg(tpaDetected);
-        }
-
-        Text accepted = OmegawareAddons.PREFIX.copy()
-            .append(Text.literal("Auto-Accepted: ").formatted(Formatting.GREEN))
-            .append(Text.literal(username).formatted(Formatting.WHITE))
-            .append(Text.literal("!").formatted(Formatting.WHITE));
-
-        Text ignored = OmegawareAddons.PREFIX.copy()
-            .append(Text.literal("Ignored: ").formatted(Formatting.RED))
-            .append(Text.literal(username).formatted(Formatting.WHITE))
-            .append(Text.literal("!").formatted(Formatting.WHITE));
+        if (printTpaDetected.get()) Logger.info("%sTPA Detected:%s %s!", Formatting.RED, Formatting.WHITE, username);
 
         if (approvedUsers.get().contains(username) || (acceptFriends.get() && Friends.get().get(username) != null) || (acceptTSRBots.get() &&  TSR_KIT_BOT_USERS.contains(username))) {
             ChatUtils.sendPlayerMsg("/tpy " + username);
 
-            if (printTpaAccepted.get()) ChatUtils.sendMsg(accepted);
+            if (printTpaAccepted.get()) Logger.info("%sAuto Accepted:%s %s!", Formatting.GREEN, Formatting.WHITE, username);
 
         } else if (autoDeny.get()){
             ChatUtils.sendPlayerMsg("/tpn " + username);
 
-            if (printTpaIgnored.get()) ChatUtils.sendMsg(ignored);
+            if (printTpaIgnored.get()) Logger.info("%sIgnored:%s %s!", Formatting.RED, Formatting.WHITE, username);
         }
 
-        if (filterTpaMessages.get() && printTpaDetected.get()) {
-            event.cancel();
-        }
+        if (filterTpaMessages.get() && printTpaDetected.get()) event.cancel();
     }
 }
