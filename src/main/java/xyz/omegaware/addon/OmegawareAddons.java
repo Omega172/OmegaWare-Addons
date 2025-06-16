@@ -7,10 +7,6 @@ import meteordevelopment.meteorclient.systems.hud.Hud;
 import meteordevelopment.meteorclient.utils.Utils;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.metadata.ModMetadata;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.ServerInfo;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
 import xyz.omegaware.addon.commands.LinkCommand;
 import xyz.omegaware.addon.commands.ShulkerQueueCommand;
 import xyz.omegaware.addon.hud.OnlineTSRMembersHUD;
@@ -30,36 +26,11 @@ public class OmegawareAddons extends MeteorAddon {
     public static ModMetadata MOD_META;
     public static final Logger LOG = LogUtils.getLogger();
     public static final Category CATEGORY = new Category("OmegaWare");
-    @SuppressWarnings("unused")
     public static final HudGroup HUD_GROUP = new HudGroup("OmegaWare");
 
     public static File GetConfigFile(String key, String filename) {
         return new File(new File(new File(new File(MeteorClient.FOLDER, "omegaware"), key), Utils.getFileWorldName()), filename);
     }
-
-    public static String getCurrentServerAddress() {
-        ServerInfo server = MinecraftClient.getInstance().getCurrentServerEntry();
-        if (server == null) {
-            return "singleplayer";
-        }
-
-        if (server.address == null || server.address.isEmpty()) {
-            return "unknown";
-        }
-
-        return MinecraftClient.getInstance().getCurrentServerEntry().address;
-    }
-
-    @SuppressWarnings("BooleanMethodIsAlwaysInverted")
-    public static boolean is6B6T() {
-        String serverAddress = getCurrentServerAddress();
-        return serverAddress.contains("6b6t.org");
-    }
-
-    public static final Text PREFIX = Text.empty()
-        .append(Text.literal("[").formatted(Formatting.WHITE))
-        .append(Text.literal("OmegaWare").formatted(Formatting.AQUA))
-        .append(Text.literal("] ").formatted(Formatting.WHITE));
 
     @Override
     public void onInitialize() {
@@ -71,9 +42,12 @@ public class OmegawareAddons extends MeteorAddon {
         Modules.get().add(new TPAAutomationModule());
         Modules.get().add(new BeaconRangeModule());
         Modules.get().add(new ChatFilterModule());
-        //Modules.get().add(new TSRKitBotModule()); // Commented out because it is not ready yet
         Modules.get().add(new ItemFrameDupeModule());
         Modules.get().add(new BetterStashFinderModule());
+
+        if (FabricLoader.getInstance().isDevelopmentEnvironment()) {
+            Modules.get().add(new TSRKitBotModule()); // Is not ready yet
+        }
 
         if (BaritoneUtils.IS_AVAILABLE) {
             Modules.get().add(new BetterBaritoneBuild());
