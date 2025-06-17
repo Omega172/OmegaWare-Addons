@@ -76,7 +76,7 @@ public class OnlineTSRMembersHUD extends HudElement {
         if (mc.player == null) return;
         //renderer.quad(x, y, getWidth(), getHeight(), Color.LIGHT_GRAY);
 
-        // get all online players from tablist
+        // get all online players from tab list
         List<String> onlinePlayers = new ArrayList<>(mc.player.networkHandler.getPlayerList().stream().map(playerInfo -> playerInfo.getProfile().getName()).toList());
 
         AtomicDouble screenY = new AtomicDouble(y+4);
@@ -98,7 +98,7 @@ public class OnlineTSRMembersHUD extends HudElement {
                         return;
                     }
 
-                    if (!showSelf.get() && member.mcNames[0].equals(mc.player.getName().getString())) {
+                    if (!showSelf.get() && player.equals(mc.player.getName().getString())) {
                         return;
                     }
 

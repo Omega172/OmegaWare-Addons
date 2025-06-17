@@ -3,7 +3,6 @@ package xyz.omegaware.addon.modules;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.pathing.goals.GoalGetToBlock;
-import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -37,6 +36,7 @@ import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.registry.Registries;
 import net.minecraft.screen.ScreenHandler;
+import net.minecraft.screen.ScreenHandlerType;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.*;
@@ -54,12 +54,382 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 
+import static meteordevelopment.meteorclient.MeteorClient.mc;
+
+class EventRegistry {
+    public static final EventRegistry INSTANCE = new EventRegistry();
+
+    public static class Event {
+        public enum EventType {
+            Resume,
+            PathToPos,
+            InteractWithBlock,
+            FetchItems
+        }
+        public EventType type;
+        public boolean bWaitOnPath;
+        public Runnable callback;
+
+        public Event(EventType type, boolean bWaitOnPath, Runnable callback) {
+            this.type = type;
+            this.bWaitOnPath = bWaitOnPath;
+            this.callback = callback;
+        }
+    } private final List<Event> eventQueue = new ArrayList<>();
+
+    public void clear() {
+        eventQueue.clear();
+    }
+
+    public void push(Event event) {
+        eventQueue.add(event);
+    }
+
+    private void remove(Event event) {
+        eventQueue.remove(event);
+    }
+
+    public boolean isEmpty() {
+        return eventQueue.isEmpty();
+    }
+
+    public List<Event> getAll() {
+        return new ArrayList<>(eventQueue);
+    }
+
+    public Event next() {
+        if (eventQueue.isEmpty()) return null;
+        Event event = eventQueue.getFirst();
+        remove(event);
+        return event;
+    }
+
+    public boolean eventExists(Event.EventType type) {
+        return eventQueue.stream().anyMatch(event -> event.type == type);
+    }
+}
+
+class StorageRegistry {
+    public static final StorageRegistry INSTANCE = new StorageRegistry();
+
+    public static class Storage {
+        public BlockPos blockPos;
+        public List<ItemStack> inventory;
+
+        public Storage() {
+            this.blockPos = BlockPos.ORIGIN;
+            this.inventory = new ArrayList<>();
+        }
+
+        public Storage(BlockPos blockPos, List<ItemStack> inventory) {
+            this.blockPos = blockPos;
+            this.inventory = inventory;
+        }
+
+        public boolean hasItem(Item item) {
+            for (ItemStack stack : inventory) {
+                if (stack.getItem().equals(item)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    } private final List<Storage> storages = new ArrayList<>();
+
+    public void clear() {
+        storages.clear();
+    }
+
+    public void add(Storage storage) {
+        storages.add(storage);
+    }
+
+    public List<Storage> getAll() {
+        return new ArrayList<>(storages);
+    }
+
+    public Storage indexStorage(ScreenHandler screenHandler, BlockPos blockPos) {
+        if (screenHandler == null || blockPos == null) return null;
+
+        int max = 27; // Default size for most chests, shulker boxes, etc.
+        if (screenHandler.getType() == ScreenHandlerType.GENERIC_9X6) max = 27 * 2;
+
+        List<ItemStack> inventory = new ArrayList<>();
+        for (int i = 0; i < max; i++) {
+            ItemStack stack = screenHandler.getSlot(i).getStack();
+            if (!stack.isEmpty()) {
+                inventory.add(stack);
+            }
+        }
+
+        return new Storage(blockPos, inventory);
+    }
+
+    public Storage find(BlockPos blockPos) {
+        for (Storage storage : storages) {
+            if (storage.blockPos.equals(blockPos)) {
+                return storage;
+            }
+        }
+        return null;
+    }
+
+    public Storage findItem(Item item) {
+        for (Storage storage : storages) {
+            if (storage.hasItem(item)) {
+                return storage;
+            }
+        }
+        return null;
+    }
+
+    public void findItemAndPath(Item item) {
+        Storage storage = findItem(item);
+        if (storage != null) {
+            Logger.info("%s Navigating to storage containing:%s %s", Formatting.GREEN, Formatting.WHITE, item.getName().getString());
+            EventRegistry.INSTANCE.push(new EventRegistry.Event(EventRegistry.Event.EventType.PathToPos, true, () -> OmegawareAddons.BETTER_BARITONE_BUILD.pathToPos(storage.blockPos)));
+            EventRegistry.INSTANCE.push(new EventRegistry.Event(EventRegistry.Event.EventType.InteractWithBlock, true, () -> {
+                if (mc.player == null || mc.interactionManager == null) {
+                    Logger.error("Player or interaction manager is null!");
+                    return;
+                }
+                mc.setScreen(null); // Close any open screens to ensure that we can interact with the storage block
+
+                Vec3d hitPos = Vec3d.ofCenter(storage.blockPos);
+                BlockHitResult hit = new BlockHitResult(hitPos, Direction.UP, storage.blockPos, false);
+
+                ActionResult result = mc.interactionManager.interactBlock(mc.player, Hand.MAIN_HAND, hit); // Attempt to interact with the block
+                if (OmegawareAddons.BETTER_BARITONE_BUILD.debugMode.get()) {
+                    Logger.info("Attempted interact with block at %s, result: %s", storage.blockPos, result.isAccepted());
+                }
+
+                if (result.isAccepted()) // If the interaction was successful, we can then make the player swing their hand
+                    mc.player.swingHand(Hand.MAIN_HAND);
+            }));
+        }
+    }
+
+    public void update() {
+        storages.removeIf(storage -> {
+            if (storage == null || storage.blockPos == null) return true;
+            assert MinecraftClient.getInstance().world != null;
+            if (!MinecraftClient.getInstance().world.isPosLoaded(storage.blockPos)) return false;
+
+            if (storage.inventory == null || storage.inventory.isEmpty()) {
+                return true;
+            }
+
+            return MinecraftClient.getInstance().world.getBlockState(storage.blockPos).isAir() || MinecraftClient.getInstance().world.getBlockEntity(storage.blockPos) == null;
+        });
+    }
+
+    public void updateStorage(BlockPos blockPos, List<ItemStack> inventory) {
+        Storage storage = find(blockPos);
+        if (storage != null) {
+            storage.inventory = inventory;
+        }
+    }
+
+    void save() {
+        update();
+
+        File configFile = OmegawareAddons.GetConfigFile("better-build", "linked_storages.json");
+
+        try {
+            //noinspection ResultOfMethodCallIgnored
+            configFile.getParentFile().mkdirs();
+
+            Writer writer = new FileWriter(configFile);
+            JsonObject payload = new JsonObject();
+
+            JsonArray linkedStoragesArray = new JsonArray();
+            for (Storage storage : storages) {
+                JsonObject storageJson = new JsonObject();
+                storageJson.addProperty("blockPos", storage.blockPos.asLong());
+
+                JsonObject inventoryJson = new JsonObject();
+                for (ItemStack stack : storage.inventory) {
+                    if (!stack.isEmpty()) {
+                        String itemId = Registries.ITEM.getId(stack.getItem()).toString();
+                        JsonObject itemData = new JsonObject();
+                        itemData.addProperty("count", stack.getCount());
+                        inventoryJson.add(itemId, itemData);
+                    }
+                }
+                storageJson.add("inventory", inventoryJson);
+                linkedStoragesArray.add(storageJson);
+            }
+
+            payload.add("linked_storages", linkedStoragesArray);
+
+
+            writer.append(payload.toString());
+            writer.close();
+        } catch (Exception ignored) {
+            OmegawareAddons.LOG.info("Failed to load Linked Storages to {}", configFile.toPath());
+        }
+    }
+
+    void load() {
+        File configFile = OmegawareAddons.GetConfigFile("better-build", "linked_storages.json");
+        if (!configFile.exists()) {
+            //noinspection LoggingSimilarMessage
+            OmegawareAddons.LOG.warn("Config file \"{}\" not found!", configFile.toPath());
+            return;
+        }
+
+        try {
+            String content = Files.readString(configFile.toPath());
+            JsonObject payload = new GsonBuilder().setPrettyPrinting().create().fromJson(content, JsonObject.class);
+            if (payload.has("linked_storages")) {
+                JsonArray linkedStoragesArray = payload.getAsJsonArray("linked_storages");
+                storages.clear();
+
+                for (int i = 0; i < linkedStoragesArray.size(); i++) {
+                    JsonObject storageJson = linkedStoragesArray.get(i).getAsJsonObject();
+                    Storage storage = new Storage();
+
+                    if (storageJson.has("blockPos")) {
+                        storage.blockPos = BlockPos.fromLong(storageJson.get("blockPos").getAsLong());
+                    }
+
+                    if (storageJson.has("inventory")) {
+                        JsonObject inventoryJson = storageJson.getAsJsonObject("inventory");
+                        storage.inventory = new ArrayList<>();
+
+                        for (String itemId : inventoryJson.keySet()) {
+                            Item item = Registries.ITEM.get(Identifier.of(itemId)).asItem();
+                            if (item != null) {
+                                JsonObject itemData = inventoryJson.getAsJsonObject(itemId);
+                                int count = itemData.get("count").getAsInt();
+                                storage.inventory.add(new ItemStack(item, count));
+                            }
+                        }
+                    }
+
+                    storages.add(storage);
+                }
+            }
+
+        } catch (Exception e) {
+            OmegawareAddons.LOG.error("Failed to load Linked Storages from {}: {}", configFile.toPath(), e.getMessage());
+        }
+    }
+}
+
+class Home {
+    public static final Home INSTANCE = new Home();
+    private static BlockPos pos;
+
+    public void setHome(BlockPos home) {
+        pos = home;
+    }
+
+    public BlockPos getPos() {
+        return pos;
+    }
+
+    public boolean isSet() {
+        return pos != null;
+    }
+
+    void save() {
+        File configFile = OmegawareAddons.GetConfigFile("better-build", "home.json");
+
+        try {
+            //noinspection ResultOfMethodCallIgnored
+            configFile.getParentFile().mkdirs();
+
+            Writer writer = new FileWriter(configFile);
+            JsonObject payload = new JsonObject();
+            payload.addProperty("home", pos.asLong());
+            writer.append(payload.toString());
+            writer.close();
+        } catch (Exception ignored) {
+            OmegawareAddons.LOG.info("Failed to save Home to {}", configFile.toPath());
+        }
+    }
+
+    void load() {
+        File configFile = OmegawareAddons.GetConfigFile("better-build", "home.json");
+        if (!configFile.exists()) {
+            //noinspection LoggingSimilarMessage
+            OmegawareAddons.LOG.warn("Config file \"{}\" not found!", configFile.toPath());
+            return;
+        }
+
+        try {
+            String content = Files.readString(configFile.toPath());
+            JsonObject payload = new GsonBuilder().setPrettyPrinting().create().fromJson(content, JsonObject.class);
+            if (payload.has("home")) {
+                pos = BlockPos.fromLong(payload.get("home").getAsLong());
+            }
+        } catch (Exception e) {
+            OmegawareAddons.LOG.error("Failed to load Home from {}: {}", configFile.toPath(), e.getMessage());
+        }
+    }
+}
+
+class FetchRegistry {
+    public static final FetchRegistry INSTANCE = new FetchRegistry();
+
+    public static class Material {
+        public Item item;
+        public int stacks;
+
+        public Material(Item item, int stacks) {
+            this.item = item;
+            this.stacks = stacks;
+        }
+    } private final List<Material> fetchList = new ArrayList<>();
+
+    public void clear() {
+        fetchList.clear();
+    }
+
+    public void add(Material material) {
+        fetchList.add(material);
+    }
+
+    public List<Material> get() {
+        return new ArrayList<>(fetchList);
+    }
+
+    public Material find(Item item) {
+        for (Material material : fetchList) {
+            if (material.item.equals(item)) {
+                return material;
+            }
+        }
+        return null;
+    }
+
+    public boolean hasItem(Item item) {
+        return find(item) != null;
+    }
+
+    public Material updateMaterial(Material material, int newStacks) {
+        Material existingMaterial = find(material.item);
+        if (existingMaterial != null) {
+            existingMaterial.stacks = newStacks;
+            return existingMaterial;
+        }
+        return null;
+    }
+
+    public void update() {
+        fetchList.removeIf(material -> material == null || material.item == null || material.stacks <= 0);
+    }
+
+    public boolean isEmpty() {
+        return fetchList.isEmpty();
+    }
+}
+
 public class BetterBaritoneBuild extends Module {
     public BetterBaritoneBuild() {
         super(OmegawareAddons.CATEGORY, "better-baritone-build", "Enable this module to enhance Baritone's building capabilities with linked storage and item fetching features.");
     }
-
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private final SettingGroup sgGeneral = this.settings.getDefaultGroup();
     private final SettingGroup sgRender = this.settings.createGroup("Render");
@@ -157,56 +527,18 @@ public class BetterBaritoneBuild extends Module {
         .build()
     );
 
-    private final Setting<Boolean> debugMode = sgGeneral.add(new BoolSetting.Builder()
+    public final Setting<Boolean> debugMode = sgGeneral.add(new BoolSetting.Builder()
         .name("debug-mode")
         .description("If enabled, the module will print debug information to the console.")
         .defaultValue(false)
         .build()
     );
 
+    // Globals
     IBaritone baritone = null;
-
-    private static class LinkedStorage {
-        public BlockPos blockPos;
-        List<ItemStack> inventory;
-
-        public LinkedStorage() {
-            this.blockPos = BlockPos.ORIGIN; // Default position
-            this.inventory = new ArrayList<>(); // Default empty inventory
-        }
-
-        public LinkedStorage(BlockPos blockPos, List<ItemStack> inventory) {
-            this.blockPos = blockPos;
-            this.inventory = inventory;
-        }
-    }
-    private final List<LinkedStorage> linkedStorages = new ArrayList<>();
-
-    private static class Event {
-        public boolean bWaitOnPath;
-        public Runnable callback;
-
-        public Event(boolean bWaitOnPath, Runnable callback) {
-            this.bWaitOnPath = bWaitOnPath;
-            this.callback = callback;
-        }
-    }
-    private final List<Event> eventQueue = new ArrayList<>();
-
-    private static class StorageItem {
-        public Item item;
-        public Integer stacks;
-        public LinkedStorage linkedStorage;
-
-        public StorageItem(Item item, Integer stacks, LinkedStorage linkedStorage) {
-            this.item = item;
-            this.stacks = stacks;
-            this.linkedStorage = linkedStorage;
-        }
-    }
-    private final List<StorageItem> itemsToFetch = new ArrayList<>();
-
-    private String buildCommand = "";
+    private static String buildCommand = "";
+    private static EventRegistry.Event currentEvent = null;
+    private BlockPos lastBlockInteractPos = null;
 
     @Override
     public void onActivate() {
@@ -218,43 +550,23 @@ public class BetterBaritoneBuild extends Module {
 
         baritone = BaritoneAPI.getProvider().getBaritoneForMinecraft(MinecraftClient.getInstance());
 
-        eventQueue.clear();
-        itemsToFetch.clear();
+        currentEvent = null;
+        EventRegistry.INSTANCE.clear();
+        FetchRegistry.INSTANCE.clear();
 
-        loadLinkedStorages();
-        loadHome();
+        StorageRegistry.INSTANCE.load();
+        Home.INSTANCE.load();
     }
 
-    @EventHandler
-    private void onRender(Render3DEvent event) {
-        if (!isActive() || mc.world == null || !highlightLinkedStorages.get()) return;
+    @Override
+    public void onDeactivate() {
+        currentEvent = null;
+        EventRegistry.INSTANCE.clear();
+        FetchRegistry.INSTANCE.clear();
 
-        if (!invertHighlight.get()) {
-            for (LinkedStorage linkedStorage : linkedStorages) {
-                if (linkedStorage == null || linkedStorage.blockPos == null || !mc.world.isPosLoaded(linkedStorage.blockPos))
-                    continue;
-
-                event.renderer.box(linkedStorage.blockPos, sideColor.get(), lineColor.get(), shapeMode.get(), 0);
-            }
-        } else {
-            for (BlockEntity blockEntity : Utils.blockEntities()) {
-                if (!(blockEntity instanceof ShulkerBoxBlockEntity || blockEntity instanceof ChestBlockEntity || blockEntity instanceof BarrelBlockEntity || blockEntity instanceof EnderChestBlockEntity))
-                    continue;
-
-                BlockPos pos = blockEntity.getPos();
-                if (mc.world.isPosLoaded(pos)) {
-                    boolean isLinked = linkedStorages.stream().anyMatch(storage -> storage.blockPos.equals(pos));
-                    if (!isLinked) {
-                        event.renderer.box(pos, sideColor.get(), lineColor.get(), shapeMode.get(), 0);
-                    }
-                }
-            }
-        }
+        StorageRegistry.INSTANCE.save();
+        Home.INSTANCE.save();
     }
-
-    private BlockPos home = null;
-    private int ticksStuck = 0;
-    private BlockPos lastBlockPos = null;
 
     @Override
     public WWidget getWidget(GuiTheme theme) {
@@ -264,7 +576,10 @@ public class BetterBaritoneBuild extends Module {
         WButton printBtn = theme.button("Print Linked Storages");
         printBtn.action = () -> {
             StringBuilder sb = new StringBuilder();
-            linkedStorages.forEach(linkedStorage -> sb.append(String.format("X=%s, Y=%s, Z=%s\n", linkedStorage.blockPos.getX(), linkedStorage.blockPos.getY(), linkedStorage.blockPos.getZ())));
+            StorageRegistry.INSTANCE.getAll().forEach(storage -> {
+                if (storage.blockPos == null) return;
+                sb.append(String.format("X=%s, Y=%s, Z=%s\n", storage.blockPos.getX(), storage.blockPos.getY(), storage.blockPos.getZ()));
+            });
 
             Logger.info("Linked Storages:\n%s", sb.toString());
         };
@@ -272,8 +587,7 @@ public class BetterBaritoneBuild extends Module {
 
         WButton clearBtn = theme.button("Clear Linked Storages");
         clearBtn.action = () -> {
-            linkedStorages.clear();
-            saveLinkedStorages();
+            StorageRegistry.INSTANCE.clear();
             Logger.info("Linked Storages cleared!");
         };
         hList.add(clearBtn);
@@ -282,92 +596,121 @@ public class BetterBaritoneBuild extends Module {
         setHomeBtn.action = () -> {
             if (mc.player == null || mc.world == null) return;
 
-            home = mc.player.getBlockPos();
-            ticksStuck = 0;
-            lastBlockPos = null;
+            Home.INSTANCE.setHome(mc.player.getBlockPos());
+            Home.INSTANCE.save();
 
-            saveHome();
-
+            BlockPos home = Home.INSTANCE.getPos();
             Logger.info("%sHome point set to:%s X=%s, Y=%s, Z=%s", Formatting.GREEN, Formatting.WHITE, home.getX(), home.getY(), home.getZ());
         };
         hList.add(setHomeBtn);
+
+        WHorizontalList hlist2 = list.add(theme.horizontalList()).expandX().widget();
+        WButton printFetchListBtn = theme.button("Print Fetch List");
+        printFetchListBtn.action = () -> {
+            StringBuilder sb = new StringBuilder();
+            FetchRegistry.INSTANCE.get().forEach(material -> {
+                sb.append(String.format("Item: %s, Stacks: %d\n", material.item.getName().getString(), material.stacks));
+            });
+
+            Logger.info("Fetch List:\n%s", sb.toString());
+        };
+        hlist2.add(printFetchListBtn);
+        WButton clearFetchListBtn = theme.button("Clear Fetch List");
+        clearFetchListBtn.action = () -> {
+            FetchRegistry.INSTANCE.clear();
+            Logger.info("Fetch List cleared!");
+        };
+        hlist2.add(clearFetchListBtn);
+
+        WButton printEventQueueBtn = theme.button("Print Event Queue");
+        printEventQueueBtn.action = () -> {
+            StringBuilder sb = new StringBuilder();
+            EventRegistry.INSTANCE.getAll().forEach(event -> {
+                sb.append(String.format("Event Type: %s, Wait on Path: %s\n", event.type, event.bWaitOnPath));
+            });
+
+            Logger.info("Event Queue:\n%s", sb.toString());
+        };
+        hlist2.add(printEventQueueBtn);
+
+        WButton clearEventQueueBtn = theme.button("Clear Event Queue");
+        clearEventQueueBtn.action = () -> {
+            EventRegistry.INSTANCE.clear();
+            Logger.info("Event Queue cleared!");
+        };
+        hlist2.add(clearEventQueueBtn);
 
         return list;
     }
 
     @EventHandler
-    private void onTickPre(TickEvent.Pre event) {
-        if (!isActive() || eventQueue.isEmpty()) return;
+    public void onServerConnectEnd(ServerConnectEndEvent event) {
+        if (!isActive()) return;
 
-        Event queuedEvent = eventQueue.getFirst();
-
-        if (queuedEvent.bWaitOnPath && baritone.getPathingBehavior().hasPath()) {
-            return;
-        }
-
-        queuedEvent.callback.run();
-
-        updateLinkedStorages();
-
-        eventQueue.remove(queuedEvent);
+        StorageRegistry.INSTANCE.load();
     }
 
     @EventHandler
     private void onTickPost(TickEvent.Post event) {
-        if (!isActive() || mc.world == null || mc.player == null || !homeIfStuck.get()) return;
-        if (mc.player.getBlockPos().equals(home)) {
+        if (!isActive()) return;
+
+        if (!EventRegistry.INSTANCE.isEmpty() && currentEvent == null) {
+            currentEvent = EventRegistry.INSTANCE.next();
+        }
+
+        if (currentEvent != null) {
             if (debugMode.get()) {
-                Logger.info("%sPlayer is at home point.", Formatting.GREEN);
+                Logger.info("Executing event: %s", currentEvent.type.toString());
             }
-            ticksStuck = 0; // Reset the stuck counter if the player is at home
-            lastBlockPos = null; // Reset the last block position
-            return;
+            if (currentEvent.bWaitOnPath && baritone.getPathingBehavior().hasPath() || baritone.getPathingBehavior().isPathing()) {
+                // Wait for Baritone to finish pathing
+                return;
+            }
+
+            currentEvent.callback.run();
+            currentEvent = null;
         }
+        // Home shit
+    }
 
-        if (home == null) {
-            // Yell at the player to set a home point
-            Logger.error("Please set a home point using the \"Set Home\" button!");
-            homeIfStuck.set(false); // Disable the setting if no home point is set
-            return;
-        }
+    @EventHandler
+    private void onRender(Render3DEvent event) {
+        if (!isActive() || mc.world == null || !highlightLinkedStorages.get()) return;
 
-        if (buildCommand.isEmpty()) return;
+        if (!invertHighlight.get()) {
+            StorageRegistry.INSTANCE.getAll().forEach(storage -> {
+                if (storage.blockPos == null || !mc.world.isPosLoaded(storage.blockPos)) return;
 
-        if (lastBlockPos == null) {
-            lastBlockPos = mc.player.getBlockPos();
-            return;
-        }
-
-        if (lastBlockPos.equals(mc.player.getBlockPos())) {
-            ticksStuck++;
+                event.renderer.box(storage.blockPos, sideColor.get(), lineColor.get(), shapeMode.get(), 0);
+            });
         } else {
-            ticksStuck = 0;
-            lastBlockPos = mc.player.getBlockPos(); // Update the last block position if the player has moved
+            for (BlockEntity blockEntity : Utils.blockEntities()) {
+                if (!(blockEntity instanceof ShulkerBoxBlockEntity || blockEntity instanceof ChestBlockEntity || blockEntity instanceof BarrelBlockEntity || blockEntity instanceof EnderChestBlockEntity))
+                    continue;
+
+                BlockPos pos = blockEntity.getPos();
+                if (!mc.world.isPosLoaded(pos) || StorageRegistry.INSTANCE.find(pos) != null) return;
+
+                event.renderer.box(pos, sideColor.get(), lineColor.get(), shapeMode.get(), 0);
+            }
+        }
+    }
+
+    @EventHandler
+    private void onBlockInteract(InteractBlockEvent event) {
+        if (!isActive() || mc.world == null) return;
+
+        BlockEntity blockEntity = mc.world.getBlockEntity(event.result.getBlockPos());
+        if (!(blockEntity instanceof ShulkerBoxBlockEntity || blockEntity instanceof ChestBlockEntity || blockEntity instanceof BarrelBlockEntity || blockEntity instanceof EnderChestBlockEntity)) {
+            if (debugMode.get()) Logger.error("Block entity is not a valid storage type!");
+            lastBlockInteractPos = null;
             return;
         }
+
+        lastBlockInteractPos = event.result.getBlockPos();
 
         if (debugMode.get()) {
-            Logger.warn("Baritone is stuck, ticks: %d", ticksStuck);
-            Logger.info("Should return home: %b", ticksStuck >= homeIfStuckTimeout.get() * 20);
-        }
-
-        // 1 second = 20 ticks
-        if (ticksStuck >= homeIfStuckTimeout.get() * 20) {
-            Logger.error("Baritone is stuck, returning to home point...");
-
-            ticksStuck = 0; // Reset the stuck counter
-            lastBlockPos = mc.player.getBlockPos(); // Update the last block position
-
-            eventQueue.clear();
-            itemsToFetch.clear();
-
-            baritone.getPathingBehavior().cancelEverything();
-
-            eventQueue.add(new Event(false, () -> baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(home))));
-
-            if (!buildCommand.isEmpty()) {
-                eventQueue.add(new Event(true, () -> baritone.getCommandManager().execute(buildCommand)));
-            }
+            Logger.info("Interacted with block at %s", lastBlockInteractPos);
         }
     }
 
@@ -406,19 +749,14 @@ public class BetterBaritoneBuild extends Module {
                 return;
             }
 
-            if (itemsToFetch.stream().anyMatch(storageItem -> storageItem.item.equals(item))) {
-                if (debugMode.get()) {
-                    Logger.warn("Item already in queue: %s%s", Formatting.WHITE, item.getName().getString());
-                }
-                return;
-            }
+            if (FetchRegistry.INSTANCE.hasItem(item)) return;
 
-            LinkedStorage linkedStorage = findItem(item);
-            if (linkedStorage == null) {
+            StorageRegistry.Storage storage = StorageRegistry.INSTANCE.findItem(item);
+            if (storage == null) {
                 Logger.error("No linked storage contains the item: %s%s", Formatting.WHITE, item.getName().getString());
 
                 if (disconnectOnError.get()) {
-                    AutoReconnect autoReconnect = Modules.get().get(meteordevelopment.meteorclient.systems.modules.misc.AutoReconnect.class);
+                    AutoReconnect autoReconnect = Modules.get().get(AutoReconnect.class);
                     if (autoReconnect.isActive()) {
                         autoReconnect.toggle();
                     }
@@ -433,13 +771,11 @@ public class BetterBaritoneBuild extends Module {
                         networkHandler.getConnection().disconnect(text);
                     }
                 }
-
                 return;
             }
 
-            itemsToFetch.add(new StorageItem(item, stacks + extraStacks.get(), linkedStorage));
-
-            pathToLinkedStorage(item, linkedStorage);
+            FetchRegistry.INSTANCE.add(new FetchRegistry.Material(item, stacks + extraStacks.get()));
+            EventRegistry.INSTANCE.push(new EventRegistry.Event(EventRegistry.Event.EventType.FetchItems, true, () -> StorageRegistry.INSTANCE.findItemAndPath(item)));
             return;
         }
 
@@ -449,7 +785,7 @@ public class BetterBaritoneBuild extends Module {
             }
 
             if (disconnectOnDone.get()) {
-                AutoReconnect autoReconnect = Modules.get().get(meteordevelopment.meteorclient.systems.modules.misc.AutoReconnect.class);
+                AutoReconnect autoReconnect = Modules.get().get(AutoReconnect.class);
                 if (autoReconnect.isActive()) {
                     autoReconnect.toggle();
                 }
@@ -476,243 +812,114 @@ public class BetterBaritoneBuild extends Module {
 
         if (msg.startsWith("stop") || msg.startsWith("cancel")) {
             buildCommand = "";
-            eventQueue.clear();
-            itemsToFetch.clear();
+            currentEvent = null;
+            EventRegistry.INSTANCE.clear();
+            FetchRegistry.INSTANCE.clear();
 
             Logger.info("Stop received.");
         }
     }
 
     @EventHandler
-    public void onServerConnectEnd(ServerConnectEndEvent event) { loadLinkedStorages(); }
-
-    private BlockPos lastBlockInteractPos = null;
-
-    @EventHandler
-    private void onBlockInteract(InteractBlockEvent event) {
-        if (!isActive() || mc.world == null || !storageLinkMode.get()) return;
-
-        lastBlockInteractPos = event.result.getBlockPos();
-    }
-
-    @EventHandler
     private void onInventory(InventoryEvent event) {
-        if (!isActive() || mc.player == null || mc.world == null || mc.currentScreen == null) return;
+        if (!isActive() || mc.player == null || mc.world == null || mc.currentScreen == null || lastBlockInteractPos == null) return;
 
-        if (!itemsToFetch.isEmpty()) {
-            itemsToFetch.forEach(storageItem -> MeteorExecutor.execute(() -> {
-                if (debugMode.get()) {
-                    String msg = String.format("Fetching %s stacks of %s from linked storage at X=%s, Y=%s, Z=%s", storageItem.stacks, storageItem.item.getName().getString(), storageItem.linkedStorage.blockPos.getX(), storageItem.linkedStorage.blockPos.getY(), storageItem.linkedStorage.blockPos.getZ());
-                    Logger.info(msg);
-                }
-                moveSlots(storageItem, mc.player.currentScreenHandler);
-            }));
+        if (StorageRegistry.INSTANCE.find(lastBlockInteractPos) != null) {
+            StorageRegistry.Storage storage = StorageRegistry.INSTANCE.indexStorage(mc.player.currentScreenHandler, lastBlockInteractPos);
+            StorageRegistry.INSTANCE.updateStorage(lastBlockInteractPos, storage.inventory);
+            StorageRegistry.INSTANCE.update();
+            StorageRegistry.INSTANCE.save();
         }
 
-        if (lastBlockInteractPos == null) return;
-        BlockEntity blockEntity = mc.world.getBlockEntity(lastBlockInteractPos);
-        if (blockEntity == null) return;
-
-        for (LinkedStorage linkedStorage : linkedStorages) {
-            if (linkedStorage.blockPos.equals(lastBlockInteractPos)) {
-                lastBlockInteractPos = null;
-                linkedStorages.remove(linkedStorage);
-
-                LinkedStorage newStorage = indexStorage(mc.player.currentScreenHandler, blockEntity.getPos());
-                if (newStorage != null) {
-                    linkedStorages.add(newStorage);
-                    saveLinkedStorages();
-                }
-
-                return;
-            }
-        }
-
-        if (!storageLinkMode.get()) return;
-        if (blockEntity instanceof ShulkerBoxBlockEntity || blockEntity instanceof ChestBlockEntity || blockEntity instanceof BarrelBlockEntity || blockEntity instanceof EnderChestBlockEntity) {
-            for (LinkedStorage linkedStorage : linkedStorages) {
-                if (linkedStorage.blockPos.equals(lastBlockInteractPos)) {
-                    lastBlockInteractPos = null;
-                    linkedStorages.remove(linkedStorage);
-
-                    LinkedStorage newStorage = indexStorage(mc.player.currentScreenHandler, blockEntity.getPos());
-                    if (newStorage == null) return;
-
-                    linkedStorages.add(newStorage);
-                    saveLinkedStorages();
-                }
-            }
-            lastBlockInteractPos = null;
-
-            LinkedStorage linkedStorage = indexStorage(mc.player.currentScreenHandler, blockEntity.getPos());
-            if (linkedStorage == null) return;
-
-            if (linkedStorage.inventory.isEmpty()) {
-                if (debugMode.get()) Logger.error("No items found in the linked storage!");
-                return;
-            }
-            linkedStorages.add(linkedStorage);
-            saveLinkedStorages();
-
-            Logger.info("Linked Storage located at X=%s, Y=%s, Z=%s", blockEntity.getPos().getX(), blockEntity.getPos().getY(), blockEntity.getPos().getZ());
-        }
-    }
-
-    private void saveLinkedStorages() {
-        updateLinkedStorages();
-
-        File configFile = OmegawareAddons.GetConfigFile("better-build", "linked_storages.json");
-
-        try {
-            //noinspection ResultOfMethodCallIgnored
-            configFile.getParentFile().mkdirs();
-
-            Writer writer = new FileWriter(configFile);
-            JsonObject payload = new JsonObject();
-
-            JsonArray linkedStoragesArray = new JsonArray();
-            for (LinkedStorage linkedStorage : linkedStorages) {
-                JsonObject storageJson = new JsonObject();
-                storageJson.addProperty("blockPos", linkedStorage.blockPos.asLong());
-
-                JsonObject inventoryJson = new JsonObject();
-                for (ItemStack stack : linkedStorage.inventory) {
-                    if (!stack.isEmpty()) {
-                        String itemId = Registries.ITEM.getId(stack.getItem()).toString();
-                        JsonObject itemData = new JsonObject();
-                        itemData.addProperty("count", stack.getCount());
-                        inventoryJson.add(itemId, itemData);
-                    }
-                }
-                storageJson.add("inventory", inventoryJson);
-                linkedStoragesArray.add(storageJson);
+        if (!FetchRegistry.INSTANCE.isEmpty()) {
+            if (!EventRegistry.INSTANCE.eventExists(EventRegistry.Event.EventType.FetchItems)) {
+                EventRegistry.INSTANCE.push(new EventRegistry.Event(EventRegistry.Event.EventType.FetchItems, true, () -> StorageRegistry.INSTANCE.findItemAndPath(FetchRegistry.INSTANCE.get().getFirst().item)));
             }
 
-            payload.add("linked_storages", linkedStoragesArray);
+            StorageRegistry.Storage interactionStorage = StorageRegistry.INSTANCE.find(lastBlockInteractPos);
+            if (interactionStorage == null) return;
 
+            FetchRegistry.INSTANCE.get().forEach(material -> {
+                if (material.item == null || material.stacks <= 0) return;
+                if (!interactionStorage.hasItem(material.item)) return;
+                ScreenHandler handler = mc.player.currentScreenHandler;
+                if (handler == null) return;
 
-            writer.append(payload.toString());
-            writer.close();
-        } catch (Exception ignored) {
-            OmegawareAddons.LOG.info("Failed to load Linked Storages to {}", configFile.toPath());
-        }
-    }
+                MeteorExecutor.execute(() -> {
+                    boolean initial = true;
+                    int count = 0;
 
-    private void loadLinkedStorages() {
-        File configFile = OmegawareAddons.GetConfigFile("better-build", "linked_storages.json");
-        if (!configFile.exists()) {
-            //noinspection LoggingSimilarMessage
-            OmegawareAddons.LOG.warn("{} not found!", configFile.toPath());
-            return;
-        }
+                    int max = 27; // Default size for most chests, shulker boxes, etc.
+                    if (handler.getType() == ScreenHandlerType.GENERIC_9X6) max = 27 * 2;
 
-        try {
-            String content = Files.readString(configFile.toPath());
-            JsonObject payload = GSON.fromJson(content, JsonObject.class);
-            if (payload.has("linked_storages")) {
-                JsonArray linkedStoragesArray = payload.getAsJsonArray("linked_storages");
-                linkedStorages.clear();
+                    for (int i = 0; i < max; i++) {
+                        if (!handler.getSlot(i).hasStack()) continue;
 
-                for (int i = 0; i < linkedStoragesArray.size(); i++) {
-                    JsonObject storageJson = linkedStoragesArray.get(i).getAsJsonObject();
-                    LinkedStorage linkedStorage = new LinkedStorage();
+                        int sleep;
+                        if (initial) {
+                            sleep = 50;
+                            initial = false;
+                        } else sleep = 70;
+                        try {
+                            Thread.sleep(sleep);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            OmegawareAddons.LOG.error("Interrupted while sleeping in item fetch: {}", e.getMessage());
+                        }
 
-                    if (storageJson.has("blockPos")) {
-                        linkedStorage.blockPos = BlockPos.fromLong(storageJson.get("blockPos").getAsLong());
-                    }
+                        // Exit if user closes screen or exit world
+                        if (mc.currentScreen == null || !Utils.canUpdate()) break;
 
-                    if (storageJson.has("inventory")) {
-                        JsonObject inventoryJson = storageJson.getAsJsonObject("inventory");
-                        linkedStorage.inventory = new ArrayList<>();
+                        Item item = handler.getSlot(i).getStack().getItem();
+                        if (item != material.item) continue;
 
-                        for (String itemId : inventoryJson.keySet()) {
-                            Item item = Registries.ITEM.get(Identifier.of(itemId)).asItem();
-                            if (item != null) {
-                                JsonObject itemData = inventoryJson.getAsJsonObject(itemId);
-                                int count = itemData.get("count").getAsInt();
-                                linkedStorage.inventory.add(new ItemStack(item, count));
-                            }
+                        count++;
+                        InvUtils.shiftClick().slotId(i);
+
+                        if (count >= material.stacks) {
+                            break;
                         }
                     }
 
-                    linkedStorages.add(linkedStorage);
-                }
-            }
+                    FetchRegistry.Material updatedMaterial = FetchRegistry.INSTANCE.updateMaterial(material, material.stacks - count);
+                    if (debugMode.get()) {
+                        Logger.info("Fetched %d stacks of %s%s, %d stacks remaining", count, Formatting.WHITE, material.item.getName().getString(), updatedMaterial != null ? updatedMaterial.stacks : 0);
+                    }
 
-        } catch (Exception e) {
-            OmegawareAddons.LOG.error("Failed to load Linked Storages from {}: {}", configFile.toPath(), e.getMessage());
+                    FetchRegistry.INSTANCE.update();
+
+                    if (FetchRegistry.INSTANCE.isEmpty()) {
+                        EventRegistry.INSTANCE.push(new EventRegistry.Event(EventRegistry.Event.EventType.Resume, true, () -> baritone.getCommandManager().execute(buildCommand)));
+                    }
+                });
+            });
         }
-    }
 
-    private void saveHome() {
-        File configFile = OmegawareAddons.GetConfigFile("better-build", "home.json");
+        if (!storageLinkMode.get() || StorageRegistry.INSTANCE.find(lastBlockInteractPos) != null) return;
 
-        try {
-            //noinspection ResultOfMethodCallIgnored
-            configFile.getParentFile().mkdirs();
-
-            Writer writer = new FileWriter(configFile);
-            JsonObject payload = new JsonObject();
-
-            if (home != null) {
-                payload.addProperty("home", home.asLong());
-            }
-
-            writer.append(payload.toString());
-            writer.close();
-        } catch (Exception ignored) {
-            OmegawareAddons.LOG.info("Failed to save home to {}", configFile.toPath());
-        }
-    }
-
-    private void loadHome() {
-        File configFile = OmegawareAddons.GetConfigFile("better-build", "home.json");
-        if (!configFile.exists()) {
-            OmegawareAddons.LOG.warn("{} not found!", configFile.toPath());
+        StorageRegistry.Storage storage = StorageRegistry.INSTANCE.indexStorage(mc.player.currentScreenHandler, lastBlockInteractPos);
+        if (storage == null) {
+            if (debugMode.get()) Logger.error("Storage is null for block at %s", lastBlockInteractPos);
             return;
         }
 
-        try {
-            String content = Files.readString(configFile.toPath());
-            JsonObject payload = GSON.fromJson(content, JsonObject.class);
-            if (payload.has("home")) {
-                home = BlockPos.fromLong(payload.get("home").getAsLong());
-            }
-        } catch (Exception e) {
-            OmegawareAddons.LOG.error("Failed to load home from {}: {}", configFile.toPath(), e.getMessage());
-        }
-    }
 
-    private void updateLinkedStorages() {
-        if (mc.world == null || linkedStorages.isEmpty()) return;
-
-        linkedStorages.removeIf(storage -> {
-            if (storage == null) return true;
-            if (!mc.world.isPosLoaded(storage.blockPos)) return false;
-
-            if (storage.inventory == null || storage.inventory.isEmpty()) {
-                return true;
-            }
-
-            return mc.world.getBlockState(storage.blockPos).isAir() || mc.world.getBlockEntity(storage.blockPos) == null;
-        });
-    }
-
-    private LinkedStorage indexStorage(ScreenHandler screenHandler, BlockPos blockPos) {
-        if (screenHandler == null) return null;
-
-        LinkedStorage linkedStorage = new LinkedStorage(blockPos, new ArrayList<>());
-        for (int i = 0; i < SlotUtils.indexToId(SlotUtils.MAIN_START); i++) {
-            ItemStack stack = screenHandler.getSlot(i).getStack();
-            if (!stack.isEmpty()) {
-                linkedStorage.inventory.add(stack.copy());
-            }
+        if (storage.inventory.isEmpty()) {
+            if (debugMode.get()) Logger.warn("Storage at %s is empty!", lastBlockInteractPos);
+            return;
         }
 
-        return linkedStorage;
+        if (debugMode.get()) {
+            Logger.info("Indexed storage at %s with %d items", lastBlockInteractPos, storage.inventory.size());
+        }
+
+        StorageRegistry.INSTANCE.add(storage);
+        StorageRegistry.INSTANCE.save();
+
+        Logger.info("Storage at %s has been linked!", lastBlockInteractPos);
     }
 
-    private void pathToPos(BlockPos blockPos) {
+    public void pathToPos(BlockPos blockPos) {
         if (mc.player == null || mc.world == null) return;
 
         if (debugMode.get()) Logger.info("%sNavigating to:%s X=%s, Y=%s, Z=%s", Formatting.GREEN, Formatting.WHITE, blockPos.getX(), blockPos.getY(), blockPos.getZ());
@@ -721,104 +928,5 @@ public class BetterBaritoneBuild extends Module {
         if (!ignoreY.get()) {
             baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(blockPos));
         } else baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(blockPos.withY(mc.player.getBlockY())));
-    }
-
-    private LinkedStorage findItem(Item item) {
-        // Sort the linked storages by distance to the player
-        if (mc.player == null || mc.world == null) return null;
-        linkedStorages.sort((a, b) -> {
-            double distanceA = a.blockPos.getSquaredDistance(mc.player.getBlockPos());
-            double distanceB = b.blockPos.getSquaredDistance(mc.player.getBlockPos());
-            return Double.compare(distanceA, distanceB);
-        });
-        // Iterate through the linked storages and check if the item is present in any of them
-        for (LinkedStorage linkedStorage : linkedStorages) {
-            for (ItemStack stack : linkedStorage.inventory) {
-                if (stack.getItem() == item) {
-                    return linkedStorage;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    private void pathToLinkedStorage(Item item, LinkedStorage linkedStorage) {
-        if (mc.player == null || mc.interactionManager == null) return;
-
-        Logger.info("%sNavigating to storage containing:%s %s", Formatting.GREEN, Formatting.WHITE, item.getName().getString());
-
-        eventQueue.add(new Event(true, () -> pathToPos(linkedStorage.blockPos)));
-
-        eventQueue.add(new Event(true, () -> {
-            mc.setScreen(null); // Close any open screens to ensure that we can interact with the storage block
-
-            Vec3d hitPos = Vec3d.ofCenter(linkedStorage.blockPos);
-            BlockHitResult hit = new BlockHitResult(hitPos, Direction.UP, linkedStorage.blockPos, false);
-
-            ActionResult result = mc.interactionManager.interactBlock(mc.player, Hand.MAIN_HAND, hit); // Attempt to interact with the block
-            if (result.isAccepted()) // If the interaction was successful, we can then make the player swing their hand
-                mc.player.swingHand(Hand.MAIN_HAND);
-        }));
-    }
-
-    private void moveSlots(StorageItem storageItem, ScreenHandler handler) {
-        if (mc.player == null) return;
-
-        boolean initial = true;
-        int count = 0;
-        List<Item> grabbedItems = new ArrayList<>();
-        for (int i = 0; i < SlotUtils.MAIN_END; i++) {
-            if (!handler.getSlot(i).hasStack()) continue;
-
-            int sleep;
-            if (initial) {
-                sleep = 50;
-                initial = false;
-            } else sleep = 70;
-            try {
-                Thread.sleep(sleep);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                OmegawareAddons.LOG.error("Interrupted while sleeping in moveSlots: {}", e.getMessage());
-            }
-
-            // Exit if user closes screen or exit world
-            if (mc.currentScreen == null || !Utils.canUpdate()) break;
-
-            Item item = handler.getSlot(i).getStack().getItem();
-            if (item != storageItem.item) continue;
-
-            grabbedItems.add(item);
-
-            LinkedStorage linkedStorage = storageItem.linkedStorage;
-            linkedStorages.remove(linkedStorage);
-            int finalI = i;
-            linkedStorage.inventory.removeIf(itemStack -> itemStack.equals(handler.getSlot(finalI).getStack()));
-            linkedStorages.add(linkedStorage);
-            saveLinkedStorages();
-
-            count++;
-            InvUtils.shiftClick().slotId(i);
-
-            if (count >= storageItem.stacks) {
-                break;
-            }
-        }
-
-        itemsToFetch.remove(storageItem);
-
-        storageItem.stacks = storageItem.stacks - count;
-        itemsToFetch.add(storageItem);
-
-        int finalCount = count;
-        itemsToFetch.removeIf(element -> grabbedItems.contains(element.item) && finalCount >= element.stacks);
-
-        if (!itemsToFetch.isEmpty()) {
-            eventQueue.clear();
-            itemsToFetch.forEach(element -> pathToLinkedStorage(element.item, element.linkedStorage));
-        } else if (!buildCommand.isEmpty()) {
-            eventQueue.add(new Event(true, () -> baritone.getCommandManager().execute(buildCommand)));
-        }
     }
 }

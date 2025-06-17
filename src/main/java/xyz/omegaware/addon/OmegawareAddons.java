@@ -28,6 +28,8 @@ public class OmegawareAddons extends MeteorAddon {
     public static final Category CATEGORY = new Category("OmegaWare");
     public static final HudGroup HUD_GROUP = new HudGroup("OmegaWare");
 
+    public static final BetterBaritoneBuild BETTER_BARITONE_BUILD = new BetterBaritoneBuild();
+
     public static File GetConfigFile(String key, String filename) {
         return new File(new File(new File(new File(MeteorClient.FOLDER, "omegaware"), key), Utils.getFileWorldName()), filename);
     }
@@ -50,7 +52,7 @@ public class OmegawareAddons extends MeteorAddon {
         }
 
         if (BaritoneUtils.IS_AVAILABLE) {
-            Modules.get().add(new BetterBaritoneBuild());
+            Modules.get().add(BETTER_BARITONE_BUILD);
         }
 
         Commands.add(new LinkCommand());
