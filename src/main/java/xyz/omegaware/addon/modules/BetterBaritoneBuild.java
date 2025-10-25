@@ -176,6 +176,13 @@ public class BetterBaritoneBuild extends Module {
     // small delay after shift-click to let server sync (ms)
     private final long AFTER_SHIFTCLICK_DELAY_MS = 80L;
 
+    // track automated interaction origin so we don't treat automated opens as manual 'link' actions
+    private BlockPos lastAutomatedInteractPos = null;
+    private long lastAutomatedInteractMs = 0L;
+
+    // if Baritone returned home due to stuck, we pause the build to avoid auto-resume causing overlap
+    private boolean stuckPaused = false;
+
     private static class LinkedStorage {
         public BlockPos blockPos;
         List<ItemStack> inventory;
@@ -377,15 +384,13 @@ public class BetterBaritoneBuild extends Module {
 
             if (baritone != null) baritone.getPathingBehavior().cancelEverything();
 
+            // Send Baritone home, but DO NOT auto-resume the build to avoid overlap/tumpang-tindih.
+            stuckPaused = true;
             eventQueue.add(new Event(false, () -> {
                 if (baritone != null) baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(home));
             }));
 
-            if (!buildCommand.isEmpty()) {
-                eventQueue.add(new Event(true, () -> {
-                    if (baritone != null) baritone.getCommandManager().execute(buildCommand);
-                }));
-            }
+            Logger.info("Build paused due to stuck; re-issue build command manually when ready.");
         }
     }
 
@@ -457,6 +462,10 @@ public class BetterBaritoneBuild extends Module {
 
             itemsToFetch.add(new StorageItem(item, stacks + extraStacks.get(), linkedStorage));
 
+            // If user previously was stuckPaused, clear the pause if they explicitly triggered a build flow
+            // (We assume a new fetch request indicates intent to continue)
+            stuckPaused = false;
+
             pathToLinkedStorage(item, linkedStorage);
             return;
         }
@@ -486,6 +495,8 @@ public class BetterBaritoneBuild extends Module {
         msg = msg.substring(2).trim(); // Remove the "> " part
         if (msg.startsWith("build") || msg.startsWith("litematica")) {
             buildCommand = msg;
+            // new explicit build command -> clear paused state so it resumes as user asked
+            stuckPaused = false;
             if (debugMode.get()) {
                 Logger.info("Build command captured: %s%s", Formatting.WHITE, buildCommand);
             }
@@ -510,7 +521,9 @@ public class BetterBaritoneBuild extends Module {
     private void onBlockInteract(InteractBlockEvent event) {
         if (!isActive() || mc.world == null || !storageLinkMode.get()) return;
 
+        // Manual player interaction sets lastBlockInteractPos and clears automated marker.
         lastBlockInteractPos = event.result.getBlockPos();
+        lastAutomatedInteractPos = null; // any manual interaction cancels automated marker
     }
 
     @EventHandler
@@ -537,9 +550,18 @@ public class BetterBaritoneBuild extends Module {
         }
 
         // 2) Handle linking storages when user has just interacted
+        // We only update linked storage **if the open was manual by the player** (not automated by the module)
         if (mc.currentScreen == null) return; // no open screen => nothing to index
 
         if (lastBlockInteractPos == null) return;
+
+        // If this open matches our automated interaction and it is recent, skip updating (prevents spam loop)
+        if (lastAutomatedInteractPos != null && lastBlockInteractPos.equals(lastAutomatedInteractPos)
+            && (System.currentTimeMillis() - lastAutomatedInteractMs) < 5000L) {
+            // This was an automated interaction (we're fetching). Don't treat it as manual linking/updating.
+            lastBlockInteractPos = null;
+            return;
+        }
 
         BlockEntity blockEntity = mc.world.getBlockEntity(lastBlockInteractPos);
         if (blockEntity == null) {
@@ -828,6 +850,10 @@ public class BetterBaritoneBuild extends Module {
 
         if (result.isAccepted()) { // If the interaction was successful, we can then make the player swing their hand
             mc.player.swingHand(Hand.MAIN_HAND);
+            // mark that we automated this open so onInventory won't treat it as manual linking
+            lastAutomatedInteractPos = linkedStorage.blockPos;
+            lastAutomatedInteractMs = System.currentTimeMillis();
+
             if (debugMode.get()) Logger.info("Interact accepted (attempt #%d)", openAttempts);
         } else {
             if (debugMode.get()) Logger.warn("Interact not accepted (attempt #%d), result=%s", openAttempts, result.toString());
@@ -924,6 +950,19 @@ public class BetterBaritoneBuild extends Module {
             itemsToFetch.add(0, newItem); // push front to retry ASAP
         }
 
+        // close the screen on the client thread so player regains control automatically
+        if (mc != null) {
+            MinecraftClient.getInstance().execute(() -> {
+                try {
+                    if (mc.currentScreen != null) mc.setScreen(null);
+                } catch (Exception ignored) { /* ignore errors while trying to close */ }
+            });
+        }
+
+        // clear automated-interact marker now that we've finished handling the screen
+        lastAutomatedInteractPos = null;
+        lastAutomatedInteractMs = 0L;
+
         // If there are still items to fetch, schedule pathing to next storage
         if (!itemsToFetch.isEmpty()) {
             // schedule path to next storage (first in list)
@@ -931,10 +970,14 @@ public class BetterBaritoneBuild extends Module {
             eventQueue.clear(); // clear stale events and requeue
             pathToLinkedStorage(next.item, next.linkedStorage);
         } else if (!buildCommand.isEmpty()) {
-            // nothing left to fetch -> resume build
-            eventQueue.add(new Event(true, () -> {
-                if (baritone != null) baritone.getCommandManager().execute(buildCommand);
-            }));
+            // nothing left to fetch -> resume build only if not paused due to Home-if-stuck
+            if (!stuckPaused) {
+                eventQueue.add(new Event(true, () -> {
+                    if (baritone != null) baritone.getCommandManager().execute(buildCommand);
+                }));
+            } else {
+                Logger.info("Build remains paused (home-if-stuck triggered earlier). Re-issue build command to resume.");
+            }
         }
     }
 }
