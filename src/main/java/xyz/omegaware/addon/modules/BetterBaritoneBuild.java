@@ -13,7 +13,6 @@ import meteordevelopment.meteorclient.events.packets.InventoryEvent;
 import meteordevelopment.meteorclient.events.render.Render3DEvent;
 import meteordevelopment.meteorclient.events.world.ServerConnectEndEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
-import meteordevelopment.meteorclient.gui.GuiTheme;
 import meteordevelopment.meteorclient.gui.widgets.WWidget;
 import meteordevelopment.meteorclient.gui.widgets.containers.WHorizontalList;
 import meteordevelopment.meteorclient.gui.widgets.containers.WVerticalList;
@@ -44,6 +43,7 @@ import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.util.Formatting;
 import xyz.omegaware.addon.OmegawareAddons;
 import xyz.omegaware.addon.utils.Logger;
 
@@ -166,6 +166,16 @@ public class BetterBaritoneBuild extends Module {
 
     IBaritone baritone = null;
 
+    // --- concurrency / safety flags for storage fetching ---
+    private volatile boolean isFetching = false; // ensure only one fetch job at a time
+    private long lastInteractMs = 0L;
+    private int openAttempts = 0;
+    private final long INTERACT_DEBOUNCE_MS = 800L; // don't interact faster than this
+    private final int MAX_OPEN_ATTEMPTS = 6; // abort after this many failed open tries
+
+    // small delay after shift-click to let server sync (ms)
+    private final long AFTER_SHIFTCLICK_DELAY_MS = 80L;
+
     private static class LinkedStorage {
         public BlockPos blockPos;
         List<ItemStack> inventory;
@@ -191,7 +201,7 @@ public class BetterBaritoneBuild extends Module {
             this.callback = callback;
         }
     }
-    private final List<Event> eventQueue = new ArrayList<>();
+    private final java.util.LinkedList<Event> eventQueue = new java.util.LinkedList<>();
 
     private static class StorageItem {
         public Item item;
@@ -257,7 +267,7 @@ public class BetterBaritoneBuild extends Module {
     private BlockPos lastBlockPos = null;
 
     @Override
-    public WWidget getWidget(GuiTheme theme) {
+    public WWidget getWidget(meteordevelopment.meteorclient.gui.GuiTheme theme) {
         WVerticalList list = theme.verticalList();
         WHorizontalList hList = list.add(theme.horizontalList()).expandX().widget();
 
@@ -301,11 +311,15 @@ public class BetterBaritoneBuild extends Module {
 
         Event queuedEvent = eventQueue.getFirst();
 
-        if (queuedEvent.bWaitOnPath && baritone.getPathingBehavior().hasPath()) {
+        if (queuedEvent.bWaitOnPath && (baritone == null || baritone.getPathingBehavior().hasPath())) {
             return;
         }
 
-        queuedEvent.callback.run();
+        try {
+            queuedEvent.callback.run();
+        } catch (Exception e) {
+            if (debugMode.get()) Logger.warn("Exception while running queued event: %s", e.getMessage());
+        }
 
         updateLinkedStorages();
 
@@ -361,12 +375,16 @@ public class BetterBaritoneBuild extends Module {
             eventQueue.clear();
             itemsToFetch.clear();
 
-            baritone.getPathingBehavior().cancelEverything();
+            if (baritone != null) baritone.getPathingBehavior().cancelEverything();
 
-            eventQueue.add(new Event(false, () -> baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(home))));
+            eventQueue.add(new Event(false, () -> {
+                if (baritone != null) baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(home));
+            }));
 
             if (!buildCommand.isEmpty()) {
-                eventQueue.add(new Event(true, () -> baritone.getCommandManager().execute(buildCommand)));
+                eventQueue.add(new Event(true, () -> {
+                    if (baritone != null) baritone.getCommandManager().execute(buildCommand);
+                }));
             }
         }
     }
@@ -419,7 +437,7 @@ public class BetterBaritoneBuild extends Module {
 
                 if (disconnectOnError.get()) {
                     AutoReconnect autoReconnect = Modules.get().get(meteordevelopment.meteorclient.systems.modules.misc.AutoReconnect.class);
-                    if (autoReconnect.isActive()) {
+                    if (autoReconnect != null && autoReconnect.isActive()) {
                         autoReconnect.toggle();
                     }
 
@@ -450,7 +468,7 @@ public class BetterBaritoneBuild extends Module {
 
             if (disconnectOnDone.get()) {
                 AutoReconnect autoReconnect = Modules.get().get(meteordevelopment.meteorclient.systems.modules.misc.AutoReconnect.class);
-                if (autoReconnect.isActive()) {
+                if (autoReconnect != null && autoReconnect.isActive()) {
                     autoReconnect.toggle();
                 }
 
@@ -497,63 +515,72 @@ public class BetterBaritoneBuild extends Module {
 
     @EventHandler
     private void onInventory(InventoryEvent event) {
-        if (!isActive() || mc.player == null || mc.world == null || mc.currentScreen == null) return;
+        if (!isActive() || mc.player == null || mc.world == null) return;
 
-        if (!itemsToFetch.isEmpty()) {
-            itemsToFetch.forEach(storageItem -> MeteorExecutor.execute(() -> {
-                if (debugMode.get()) {
-                    String msg = String.format("Fetching %s stacks of %s from linked storage at X=%s, Y=%s, Z=%s", storageItem.stacks, storageItem.item.getName().getString(), storageItem.linkedStorage.blockPos.getX(), storageItem.linkedStorage.blockPos.getY(), storageItem.linkedStorage.blockPos.getZ());
-                    Logger.info(msg);
+        // 1) If we have items to fetch and we're not already fetching, start processing only the first item.
+        if (!itemsToFetch.isEmpty() && !isFetching) {
+            // pick the first item (FIFO)
+            StorageItem itemToProcess = itemsToFetch.get(0);
+
+            // Submit fetching task and mark fetching flag
+            isFetching = true;
+            MeteorExecutor.execute(() -> {
+                try {
+                    // moveSlots expects a ScreenHandler; pass currentScreenHandler (may be null -> handled inside)
+                    moveSlots(itemToProcess, mc.player.currentScreenHandler);
+                } finally {
+                    // allow next fetch to run (after a tiny delay to avoid spamming)
+                    try { Thread.sleep(120); } catch (InterruptedException ex) { Thread.currentThread().interrupt(); }
+                    isFetching = false;
                 }
-                moveSlots(storageItem, mc.player.currentScreenHandler);
-            }));
+            });
         }
 
-        if (lastBlockInteractPos == null) return;
-        BlockEntity blockEntity = mc.world.getBlockEntity(lastBlockInteractPos);
-        if (blockEntity == null) return;
+        // 2) Handle linking storages when user has just interacted
+        if (mc.currentScreen == null) return; // no open screen => nothing to index
 
-        for (LinkedStorage linkedStorage : linkedStorages) {
+        if (lastBlockInteractPos == null) return;
+
+        BlockEntity blockEntity = mc.world.getBlockEntity(lastBlockInteractPos);
+        if (blockEntity == null) {
+            lastBlockInteractPos = null;
+            return;
+        }
+
+        // Use index-based iteration to safely remove while iterating
+        boolean handled = false;
+        for (int i = 0; i < linkedStorages.size(); i++) {
+            LinkedStorage linkedStorage = linkedStorages.get(i);
             if (linkedStorage.blockPos.equals(lastBlockInteractPos)) {
+                // replace existing entry with fresh index from current screen
                 lastBlockInteractPos = null;
-                linkedStorages.remove(linkedStorage);
+                linkedStorages.remove(i);
 
                 LinkedStorage newStorage = indexStorage(mc.player.currentScreenHandler, blockEntity.getPos());
                 if (newStorage != null) {
                     linkedStorages.add(newStorage);
                     saveLinkedStorages();
+                    Logger.info("Updated linked storage at X=%s, Y=%s, Z=%s", blockEntity.getPos().getX(), blockEntity.getPos().getY(), blockEntity.getPos().getZ());
                 }
-
-                return;
+                handled = true;
+                break;
             }
         }
+        if (handled) return;
 
-        if (!storageLinkMode.get()) return;
+        // If not handled above and storageLinkMode on, add new linked storage
+        if (!storageLinkMode.get()) { lastBlockInteractPos = null; return; }
+
         if (blockEntity instanceof ShulkerBoxBlockEntity || blockEntity instanceof ChestBlockEntity || blockEntity instanceof BarrelBlockEntity || blockEntity instanceof EnderChestBlockEntity) {
-            for (LinkedStorage linkedStorage : linkedStorages) {
-                if (linkedStorage.blockPos.equals(lastBlockInteractPos)) {
-                    lastBlockInteractPos = null;
-                    linkedStorages.remove(linkedStorage);
-
-                    LinkedStorage newStorage = indexStorage(mc.player.currentScreenHandler, blockEntity.getPos());
-                    if (newStorage == null) return;
-
-                    linkedStorages.add(newStorage);
-                    saveLinkedStorages();
-                }
-            }
+            LinkedStorage newStorage = indexStorage(mc.player.currentScreenHandler, blockEntity.getPos());
             lastBlockInteractPos = null;
-
-            LinkedStorage linkedStorage = indexStorage(mc.player.currentScreenHandler, blockEntity.getPos());
-            if (linkedStorage == null) return;
-
-            if (linkedStorage.inventory.isEmpty()) {
+            if (newStorage == null) return;
+            if (newStorage.inventory.isEmpty()) {
                 if (debugMode.get()) Logger.error("No items found in the linked storage!");
                 return;
             }
-            linkedStorages.add(linkedStorage);
+            linkedStorages.add(newStorage);
             saveLinkedStorages();
-
             Logger.info("Linked Storage located at X=%s, Y=%s, Z=%s", blockEntity.getPos().getX(), blockEntity.getPos().getY(), blockEntity.getPos().getZ());
         }
     }
@@ -702,7 +729,7 @@ public class BetterBaritoneBuild extends Module {
         if (screenHandler == null) return null;
 
         LinkedStorage linkedStorage = new LinkedStorage(blockPos, new ArrayList<>());
-        for (int i = 0; i < SlotUtils.indexToId(SlotUtils.MAIN_START); i++) {
+        for (int i = 0; i < SlotUtils.indexToId(SlotUtils.MAIN_START) && i < screenHandler.slots.size(); i++) {
             ItemStack stack = screenHandler.getSlot(i).getStack();
             if (!stack.isEmpty()) {
                 linkedStorage.inventory.add(stack.copy());
@@ -717,10 +744,13 @@ public class BetterBaritoneBuild extends Module {
 
         if (debugMode.get()) Logger.info("%sNavigating to:%s X=%s, Y=%s, Z=%s", Formatting.GREEN, Formatting.WHITE, blockPos.getX(), blockPos.getY(), blockPos.getZ());
 
-
+        // Use explicit block Y to avoid accidental Y-shifts caused by player's Y
         if (!ignoreY.get()) {
-            baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(blockPos));
-        } else baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(blockPos.withY(mc.player.getBlockY())));
+            if (baritone != null) baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(blockPos));
+        } else {
+            BlockPos target = new BlockPos(blockPos.getX(), blockPos.getY(), blockPos.getZ());
+            if (baritone != null) baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(target));
+        }
     }
 
     private LinkedStorage findItem(Item item) {
@@ -744,31 +774,86 @@ public class BetterBaritoneBuild extends Module {
     }
 
     private void pathToLinkedStorage(Item item, LinkedStorage linkedStorage) {
-        if (mc.player == null || mc.interactionManager == null) return;
+        if (mc.player == null || mc.interactionManager == null || linkedStorage == null) return;
 
         Logger.info("%sNavigating to storage containing:%s %s", Formatting.GREEN, Formatting.WHITE, item.getName().getString());
 
+        // Reset open attempts per new path
+        openAttempts = 0;
+
+        // 1) Path to storage
         eventQueue.add(new Event(true, () -> pathToPos(linkedStorage.blockPos)));
 
+        // 2) After arriving, attempt to interact (debounced)
         eventQueue.add(new Event(true, () -> {
-            mc.setScreen(null); // Close any open screens to ensure that we can interact with the storage block
+            long now = System.currentTimeMillis();
+            if (now - lastInteractMs < INTERACT_DEBOUNCE_MS) {
+                if (debugMode.get()) Logger.warn("Interact debounced, skipping immediate interact (delta=%dms)", now - lastInteractMs);
+                // requeue a safer interact attempt slightly later
+                MeteorExecutor.execute(() -> {
+                    try { Thread.sleep(INTERACT_DEBOUNCE_MS); } catch (InterruptedException ex) { Thread.currentThread().interrupt(); }
+                    // schedule on next tick via event queue
+                    eventQueue.add(new Event(true, () -> {
+                        performStorageInteractSafely(linkedStorage);
+                    }));
+                });
+                return;
+            }
 
-            Vec3d hitPos = Vec3d.ofCenter(linkedStorage.blockPos);
-            BlockHitResult hit = new BlockHitResult(hitPos, Direction.UP, linkedStorage.blockPos, false);
-
-            ActionResult result = mc.interactionManager.interactBlock(mc.player, Hand.MAIN_HAND, hit); // Attempt to interact with the block
-            if (result.isAccepted()) // If the interaction was successful, we can then make the player swing their hand
-                mc.player.swingHand(Hand.MAIN_HAND);
+            performStorageInteractSafely(linkedStorage);
         }));
+    }
+
+    // helper that attempts to interact but enforces max attempts and updates timestamp
+    private void performStorageInteractSafely(LinkedStorage linkedStorage) {
+        if (mc.player == null || mc.interactionManager == null || linkedStorage == null) return;
+
+        if (openAttempts >= MAX_OPEN_ATTEMPTS) {
+            Logger.error("Too many open attempts for storage at X=%s, Y=%s, Z=%s. Aborting fetch.", linkedStorage.blockPos.getX(), linkedStorage.blockPos.getY(), linkedStorage.blockPos.getZ());
+            // fail-safe: clear queue so player regains control
+            eventQueue.clear();
+            itemsToFetch.clear();
+            openAttempts = 0;
+            return;
+        }
+
+        mc.setScreen(null); // Close any open screens to ensure that we can interact with the storage block
+
+        Vec3d hitPos = Vec3d.ofCenter(linkedStorage.blockPos);
+        BlockHitResult hit = new BlockHitResult(hitPos, Direction.UP, linkedStorage.blockPos, false);
+
+        ActionResult result = mc.interactionManager.interactBlock(mc.player, Hand.MAIN_HAND, hit); // Attempt to interact with the block
+        lastInteractMs = System.currentTimeMillis();
+        openAttempts++;
+
+        if (result.isAccepted()) { // If the interaction was successful, we can then make the player swing their hand
+            mc.player.swingHand(Hand.MAIN_HAND);
+            if (debugMode.get()) Logger.info("Interact accepted (attempt #%d)", openAttempts);
+        } else {
+            if (debugMode.get()) Logger.warn("Interact not accepted (attempt #%d), result=%s", openAttempts, result.name());
+        }
     }
 
     private void moveSlots(StorageItem storageItem, ScreenHandler handler) {
         if (mc.player == null) return;
 
+        if (storageItem == null) return;
+
         boolean initial = true;
         int count = 0;
+
         List<Item> grabbedItems = new ArrayList<>();
-        for (int i = 0; i < SlotUtils.MAIN_END; i++) {
+
+        // If handler is null (no screen), nothing to move
+        if (handler == null) {
+            if (debugMode.get()) Logger.warn("moveSlots: no open screen handler to move items from.");
+            // give up on this attempt - allow next attempt later
+            return;
+        }
+
+        int maxIndex = Math.min(SlotUtils.MAIN_END, handler.slots.size());
+
+        for (int i = 0; i < maxIndex; i++) {
             if (!handler.getSlot(i).hasStack()) continue;
 
             int sleep;
@@ -791,34 +876,65 @@ public class BetterBaritoneBuild extends Module {
 
             grabbedItems.add(item);
 
+            // Update linked storage inventory safely: find matching linkedStorage object and update
             LinkedStorage linkedStorage = storageItem.linkedStorage;
-            linkedStorages.remove(linkedStorage);
-            int finalI = i;
-            linkedStorage.inventory.removeIf(itemStack -> itemStack.equals(handler.getSlot(finalI).getStack()));
-            linkedStorages.add(linkedStorage);
-            saveLinkedStorages();
+            if (linkedStorage != null) {
+                // replace the linked storage entry safely
+                for (int si = 0; si < linkedStorages.size(); si++) {
+                    LinkedStorage ls = linkedStorages.get(si);
+                    if (ls.blockPos.equals(linkedStorage.blockPos)) {
+                        // remove the exact stack from the stored inventory by matching item
+                        ItemStack stackInSlot = handler.getSlot(i).getStack();
+                        linkedStorages.get(si).inventory.removeIf(itemStack -> itemStack.getItem() == stackInSlot.getItem());
+                        break;
+                    }
+                }
+                saveLinkedStorages();
+            }
 
             count++;
+            // perform shift-click to move item to player inventory
             InvUtils.shiftClick().slotId(i);
+
+            // small delay after shift-click to let server sync
+            try { Thread.sleep(AFTER_SHIFTCLICK_DELAY_MS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
 
             if (count >= storageItem.stacks) {
                 break;
             }
         }
 
-        itemsToFetch.remove(storageItem);
+        // Update the single storageItem's remaining stacks
+        int remaining = Math.max(0, storageItem.stacks - count);
 
-        storageItem.stacks = storageItem.stacks - count;
-        itemsToFetch.add(storageItem);
+        // Remove the processed item from itemsToFetch (we always remove the instance we processed)
+        // Use removeIf to be safe matching by item + linkedStorage position
+        itemsToFetch.removeIf(si -> {
+            if (si.item == storageItem.item) {
+                if (si.linkedStorage == null && storageItem.linkedStorage == null) return true;
+                if (si.linkedStorage != null && storageItem.linkedStorage != null && si.linkedStorage.blockPos.equals(storageItem.linkedStorage.blockPos))
+                    return true;
+            }
+            return false;
+        });
 
-        int finalCount = count;
-        itemsToFetch.removeIf(element -> grabbedItems.contains(element.item) && finalCount >= element.stacks);
+        if (remaining > 0) {
+            // re-add with updated remaining stacks
+            StorageItem newItem = new StorageItem(storageItem.item, remaining, storageItem.linkedStorage);
+            itemsToFetch.add(0, newItem); // push front to retry ASAP
+        }
 
+        // If there are still items to fetch, schedule pathing to next storage
         if (!itemsToFetch.isEmpty()) {
-            eventQueue.clear();
-            itemsToFetch.forEach(element -> pathToLinkedStorage(element.item, element.linkedStorage));
+            // schedule path to next storage (first in list)
+            StorageItem next = itemsToFetch.get(0);
+            eventQueue.clear(); // clear stale events and requeue
+            pathToLinkedStorage(next.item, next.linkedStorage);
         } else if (!buildCommand.isEmpty()) {
-            eventQueue.add(new Event(true, () -> baritone.getCommandManager().execute(buildCommand)));
+            // nothing left to fetch -> resume build
+            eventQueue.add(new Event(true, () -> {
+                if (baritone != null) baritone.getCommandManager().execute(buildCommand);
+            }));
         }
     }
 }
