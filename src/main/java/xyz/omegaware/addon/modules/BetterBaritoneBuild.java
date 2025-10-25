@@ -220,7 +220,7 @@ public class BetterBaritoneBuild extends Module {
         .name("baritone-ignore-y")
         .description("DEPRECATED: This setting is no longer used.")
         .defaultValue(false)
-        .visible(false) // Hide from GUI
+        .visible(() -> false) // Hide from GUI (FIXED: Was `.visible(false)`)
         .build()
     );
 
@@ -231,7 +231,7 @@ public class BetterBaritoneBuild extends Module {
     private volatile boolean isFetching = false; // ensure only one fetch job at a time
     private long lastInteractMs = 0L;
     private int openAttempts = 0;
-    private final long INTERACT_DEBOUNCE_MS = 800L; // don't interact faster than this
+    private final long INTERACT_DEBOB_MS = 800L; // don't interact faster than this
     private final int MAX_OPEN_ATTEMPTS = 6; // abort after this many failed open tries
 
     // automated open tracking & double-check support
@@ -1101,11 +1101,11 @@ public class BetterBaritoneBuild extends Module {
         // 2) After arriving, attempt to interact (debounced)
         eventQueue.add(new Event(true, () -> {
             long now = System.currentTimeMillis();
-            if (now - lastInteractMs < INTERACT_DEBOUNCE_MS) {
+            if (now - lastInteractMs < INTERACT_DEBOB_MS) {
                 if (debugMode.get()) Logger.warn("Interact debounced, skipping immediate interact (delta=%dms)", now - lastInteractMs);
                 // requeue a safer interact attempt slightly later
                 MeteorExecutor.execute(() -> {
-                    try { Thread.sleep(INTERACT_DEBOUNCE_MS); } catch (InterruptedException ex) { Thread.currentThread().interrupt(); }
+                    try { Thread.sleep(INTERACT_DEBOB_MS); } catch (InterruptedException ex) { Thread.currentThread().interrupt(); }
                     // schedule on next tick via event queue
                     eventQueue.add(new Event(true, () -> {
                         performStorageInteractSafely(linkedStorage);
