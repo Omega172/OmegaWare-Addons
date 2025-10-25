@@ -1180,3 +1180,4 @@ public class BetterBaritoneBuild extends Module {
     
         return total;
     }
+}
