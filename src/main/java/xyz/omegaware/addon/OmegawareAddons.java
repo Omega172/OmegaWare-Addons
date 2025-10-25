@@ -1,32 +1,27 @@
 package xyz.omegaware.addon;
 
 import meteordevelopment.meteorclient.MeteorClient;
-import meteordevelopment.meteorclient.commands.Commands;
 import meteordevelopment.meteorclient.pathing.BaritoneUtils;
-import meteordevelopment.meteorclient.systems.hud.Hud;
 import meteordevelopment.meteorclient.utils.Utils;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.metadata.ModMetadata;
-import xyz.omegaware.addon.commands.LinkCommand;
-import xyz.omegaware.addon.commands.ShulkerQueueCommand;
-import xyz.omegaware.addon.hud.OnlineTSRMembersHUD;
-import xyz.omegaware.addon.modules.*;
 import com.mojang.logging.LogUtils;
 import meteordevelopment.meteorclient.addons.GithubRepo;
 import meteordevelopment.meteorclient.addons.MeteorAddon;
-import meteordevelopment.meteorclient.systems.hud.HudGroup;
 import meteordevelopment.meteorclient.systems.modules.Category;
 import meteordevelopment.meteorclient.systems.modules.Modules;
 import org.slf4j.Logger;
 
 import java.io.File;
 
+/**
+ * Slimmed-down addon entrypoint: only registers BetterBaritoneBuild.
+ */
 public class OmegawareAddons extends MeteorAddon {
     public static final String MOD_ID = "omegaware-addons";
     public static ModMetadata MOD_META;
     public static final Logger LOG = LogUtils.getLogger();
     public static final Category CATEGORY = new Category("OmegaWare");
-    public static final HudGroup HUD_GROUP = new HudGroup("OmegaWare");
 
     public static File GetConfigFile(String key, String filename) {
         return new File(new File(new File(new File(MeteorClient.FOLDER, "omegaware"), key), Utils.getFileWorldName()), filename);
@@ -34,29 +29,14 @@ public class OmegawareAddons extends MeteorAddon {
 
     @Override
     public void onInitialize() {
-        LOG.info("Initializing OmegaWare Addons");
+        LOG.info("Initializing OmegaWare Addons (pruned, BetterBaritoneBuild only)");
 
         MOD_META = FabricLoader.getInstance().getModContainer(MOD_ID).orElseThrow().getMetadata();
 
-        // Modules
-        Modules.get().add(new TPAAutomationModule());
-        Modules.get().add(new BeaconRangeModule());
-        Modules.get().add(new ChatFilterModule());
-        Modules.get().add(new ItemFrameDupeModule());
-        Modules.get().add(new BetterStashFinderModule());
-
-        if (FabricLoader.getInstance().isDevelopmentEnvironment()) {
-            Modules.get().add(new TSRKitBotModule()); // Is not ready yet
-        }
-
+        // Only register the BetterBaritoneBuild module if Baritone is available.
         if (BaritoneUtils.IS_AVAILABLE) {
-            Modules.get().add(new BetterBaritoneBuild());
+            Modules.get().add(new xyz.omegaware.addon.modules.BetterBaritoneBuild());
         }
-
-        Commands.add(new LinkCommand());
-        Commands.add(new ShulkerQueueCommand());
-
-        Hud.get().register(OnlineTSRMembersHUD.INFO);
     }
 
     @Override
@@ -74,9 +54,10 @@ public class OmegawareAddons extends MeteorAddon {
         return "https://github.com/Omega172/OmegaWare-Addons";
     }
 
+    // Update repo version tag to reflect Minecraft target (kept simple).
     @Override
     public GithubRepo getRepo() {
-        return new GithubRepo("Omega172", "OmegaWare-Addons", "1.21.4", null);
+        return new GithubRepo("Omega172", "OmegaWare-Addons", "1.21.10", null);
     }
 
     @Override
