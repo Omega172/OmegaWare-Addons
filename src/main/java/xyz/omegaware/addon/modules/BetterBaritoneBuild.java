@@ -981,83 +981,107 @@ public class BetterBaritoneBuild extends Module {
     }
 
     // helper that attempts to interact but enforces max attempts and updates timestamp
-    // Major change: don't rely solely on ActionResult; wait for screen open within timeout to consider success.
+    // Non-blocking version: try an interact, then schedule several tick-checks to see if the screen opened.
+    // If screen opens -> spawn moveSlots in background. If not -> retry interact (bounded attempts).
     private void performStorageInteractSafely(LinkedStorage linkedStorage) {
         if (mc.player == null || mc.interactionManager == null || linkedStorage == null) return;
-
+    
+        // Limit attempts per storage using a map keyed by position
+        // We store attempts in a temporary field map; create if missing
+        // (use simple per-instance tracking using openAttempts variable reset on new path)
         if (openAttempts >= MAX_OPEN_ATTEMPTS) {
             Logger.error("Too many open attempts for storage at X=%s, Y=%s, Z=%s. Aborting fetch.", linkedStorage.blockPos.getX(), linkedStorage.blockPos.getY(), linkedStorage.blockPos.getZ());
-            // fail-safe: clear queue so player regains control
             eventQueue.clear();
             itemsToFetch.clear();
             openAttempts = 0;
             return;
         }
-
-        mc.setScreen(null); // Close any open screens to ensure that we can interact with the storage block
-
-        Vec3d hitPos = Vec3d.ofCenter(linkedStorage.blockPos);
-        BlockHitResult hit = new BlockHitResult(hitPos, Direction.UP, linkedStorage.blockPos, false);
-
+    
+        // Close any open screens first to make sure interaction is applied cleanly
+        try {
+            mc.setScreen(null);
+        } catch (Exception ignored) {}
+    
+        // Try to interact once (non-blocking)
         ActionResult result = ActionResult.PASS;
         try {
-            result = mc.interactionManager.interactBlock(mc.player, Hand.MAIN_HAND, hit); // Attempt to interact with the block
+            Vec3d hitPos = Vec3d.ofCenter(linkedStorage.blockPos);
+            BlockHitResult hit = new BlockHitResult(hitPos, Direction.UP, linkedStorage.blockPos, false);
+            result = mc.interactionManager.interactBlock(mc.player, Hand.MAIN_HAND, hit);
         } catch (Exception ex) {
-            if (debugMode.get()) Logger.warn("Exception interacting with block: %s", ex.getMessage());
+            if (debugMode.get()) Logger.warn("Exception when attempting interact: %s", ex.getMessage());
         }
-
+    
+        // Update bookkeeping
         lastInteractMs = System.currentTimeMillis();
         openAttempts++;
-
+    
         // Mark automated interaction immediately (so onInventory won't treat it as manual)
         lastAutomatedInteractPos = linkedStorage.blockPos;
         lastAutomatedInteractMs = System.currentTimeMillis();
-
-        // Wait up to SCREEN_OPEN_TIMEOUT_MS for the screen to open
-        long start = System.currentTimeMillis();
-        boolean screenOpened = false;
-        while (System.currentTimeMillis() - start < SCREEN_OPEN_TIMEOUT_MS) {
-            // If currentScreen is non-null and is a container, we consider it opened
-            if (mc.currentScreen != null) {
-                screenOpened = true;
-                break;
-            }
-            try {
-                Thread.sleep(30);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            }
-        }
-
-        if (screenOpened || result.isAccepted()) {
-            // success: reset attempts counter, and proceed — moveSlots will handle fetching in onInventory when InventoryEvent triggers
-            openAttempts = 0;
-            if (debugMode.get()) Logger.info("Storage open accepted (attempt #%d). ScreenOpened=%b, result=%s", openAttempts, screenOpened, result.toString());
-            // If screen already open, immediately trigger InventoryEvent handling by calling moveSlots in separate task:
-            if (mc.currentScreen != null) {
-                // schedule a small delay and then let moveSlots run from onInventory event (or call it directly)
-                // prefer to call moveSlots directly so it won't wait for inventory event on some servers
-                StorageItem first = itemsToFetch.isEmpty() ? null : itemsToFetch.get(0);
-                if (first != null) {
-                    // call moveSlots directly on executor to avoid blocking main thread
-                    MeteorExecutor.execute(() -> {
-                        try {
-                            moveSlots(first, mc.player.currentScreenHandler);
-                        } catch (Exception ex) {
-                            if (debugMode.get()) Logger.warn("Error during direct moveSlots: %s", ex.getMessage());
+    
+        if (debugMode.get()) Logger.info("Performed non-blocking interact attempt #%d, result=%s, scheduling short checks for GUI open.", openAttempts, result.toString());
+    
+        // Schedule a few quick checks (one per tick) to see if the screen opened.
+        // We'll push N checks into the eventQueue as non-waiting events (they run next ticks).
+        final int checks = Math.max(3, (int)(SCREEN_OPEN_TIMEOUT_MS / 50)); // ~1 tick = 50ms; run several checks
+        for (int i = 0; i < checks; i++) {
+            // False => do not wait for path; execute in next ticks
+            eventQueue.add(new Event(false, () -> {
+                try {
+                    // If user closed world or screen no longer relevant, skip
+                    if (!isActive() || mc.player == null) return;
+    
+                    // If a container screen is open, treat as success
+                    if (mc.currentScreen != null) {
+                        // We consider screen open as success. Immediately hand off to background fetching.
+                        if (debugMode.get()) Logger.info("Detected open screen after interact for storage at %s", linkedStorage.blockPos.toShortString());
+    
+                        // Reset attempts
+                        openAttempts = 0;
+    
+                        // Pull the first queued storage item (if it matches this storage) and process it in background
+                        StorageItem first = null;
+                        if (!itemsToFetch.isEmpty()) first = itemsToFetch.get(0);
+    
+                        if (first != null && first.linkedStorage != null && first.linkedStorage.blockPos.equals(linkedStorage.blockPos)) {
+                            // Run moveSlots on an executor so we don't block client thread
+                            final StorageItem toProcess = first;
+                            MeteorExecutor.execute(() -> {
+                                try {
+                                    moveSlots(toProcess, mc.player.currentScreenHandler);
+                                } catch (Exception ex) {
+                                    if (debugMode.get()) Logger.warn("Error during moveSlots (background): %s", ex.getMessage());
+                                }
+                            });
+                        } else {
+                            // If nothing matches, just close the screen quickly so client regains control.
+                            MinecraftClient.getInstance().execute(() -> {
+                                try { if (mc.currentScreen != null) mc.setScreen(null); } catch (Exception ignored) {}
+                            });
                         }
-                    });
+                    } else {
+                        // Screen still not open: if we've exhausted attempts, schedule a retry interact (with delay via queue)
+                        if (openAttempts >= MAX_OPEN_ATTEMPTS) {
+                            if (debugMode.get()) Logger.warn("No screen opened after %d attempts for storage %s. Aborting.", openAttempts, linkedStorage.blockPos.toShortString());
+                            // abort: clear fetches to avoid endless loops
+                            itemsToFetch.removeIf(si -> si.linkedStorage != null && si.linkedStorage.blockPos.equals(linkedStorage.blockPos));
+                            openAttempts = 0;
+                            return;
+                        }
+    
+                        // No screen yet and still attempts left: schedule another interact attempt later
+                        // We add one event that will call performStorageInteractSafely again but with a slight pathing-wait to give server time
+                        if (debugMode.get()) Logger.info("No screen yet for storage %s; will re-attempt interact (attempt %d).", linkedStorage.blockPos.toShortString(), openAttempts+1);
+                        eventQueue.add(new Event(true, () -> {
+                            // Re-attempt interact (this will increment openAttempts again)
+                            performStorageInteractSafely(linkedStorage);
+                        }));
+                    }
+                } catch (Exception ex) {
+                    if (debugMode.get()) Logger.warn("Exception in scheduled open-check: %s", ex.getMessage());
                 }
-            }
-        } else {
-            // no screen opened and result not accepted -> consider retry
-            if (debugMode.get()) Logger.warn("Interact not accepted (attempt #%d), result=%s — will retry if attempts left.", openAttempts, result.toString());
-            // requeue another attempt after slight delay
-            MeteorExecutor.execute(() -> {
-                try { Thread.sleep(250 + (openAttempts * 50)); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
-                eventQueue.add(new Event(true, () -> performStorageInteractSafely(linkedStorage)));
-            });
+            }));
         }
     }
 
