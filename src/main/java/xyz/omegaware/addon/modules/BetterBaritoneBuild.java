@@ -364,62 +364,61 @@ public class BetterBaritoneBuild extends Module {
             homeIfStuck.set(false); // Disable the setting if no home point is set
             return;
         }
-
-        if (buildCommand.isEmpty()) return;
-
+    
+        // We watch "stuckness" regardless of buildCommand so missing-items or other pauses still trigger return-home.
         if (lastBlockPos == null) {
             lastBlockPos = mc.player.getBlockPos();
             return;
         }
-
+    
+        // If Baritone has an active path we consider movement happening (do not count as stuck),
+        // otherwise check whether player position changed.
+        boolean baritoneHasPath = (baritone != null && baritone.getPathingBehavior().hasPath());
+        if (baritoneHasPath) {
+            // if baritone is actively pathing, reset stuck counters because we're not stuck yet
+            ticksStuck = 0;
+            lastBlockPos = mc.player.getBlockPos();
+            return;
+        }
+    
         if (lastBlockPos.equals(mc.player.getBlockPos())) {
             ticksStuck++;
         } else {
             ticksStuck = 0;
-            lastBlockPos = mc.player.getBlockPos(); // Update the last block position if the player has moved
+            lastBlockPos = mc.player.getBlockPos();
             return;
         }
-
+    
         // reduced/stabilized logging:
         if (debugMode.get() && ticksStuck % 20 == 0) { // log roughly once per second while stuck (if debug)
             Logger.warn("Baritone may be stuck, ticks: %d", ticksStuck);
         }
-
-        // 1 second = 20 ticks
+    
+        // 1 second = 20 ticks; if we've exceeded configured timeout and not moving -> send home
         if (ticksStuck >= homeIfStuckTimeout.get() * 20) {
-            Logger.error("Baritone is stuck, returning to home point...");
-
+            Logger.error("Baritone is stuck or idle for too long, returning to home point...");
+    
             ticksStuck = 0; // Reset the stuck counter
             lastBlockPos = mc.player.getBlockPos(); // Update the last block position
-
+    
+            // Clear queues so we don't keep trying to fetch other items while returning
             eventQueue.clear();
             itemsToFetch.clear();
-
+    
             if (baritone != null) baritone.getPathingBehavior().cancelEverything();
-
+    
             // Send Baritone home, but DO NOT auto-resume the build to avoid overlap/tumpang-tindih.
             stuckPaused = true;
             homeArrivalRetries = 0;
+            // enqueue go-home
             eventQueue.add(new Event(false, () -> {
                 if (baritone != null) baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(home));
             }));
-
-            // After giving the path command we schedule a verification event that ensures exact arrival
+            // verify arrival with retrying
             eventQueue.add(new Event(true, this::verifyArrivalAtHome));
-
+    
             if (debugMode.get()) {
                 Logger.info("Build paused due to stuck; re-issue build command manually when ready.");
-            }
-        } else {
-            // occasionally inform player if they are at home (throttled)
-            if (mc.player.getBlockPos().equals(home)) {
-                long now = System.currentTimeMillis();
-                if (now - lastHomeLogMs > HOME_LOG_THROTTLE_MS) {
-                    lastHomeLogMs = now;
-                    if (debugMode.get()) {
-                        Logger.info("%sPlayer is at home point.", Formatting.GREEN);
-                    }
-                }
             }
         }
     }
@@ -427,28 +426,37 @@ public class BetterBaritoneBuild extends Module {
     // verifyArrivalAtHome will check if player is precisely at 'home' BlockPos and retry a few times if off by 1 block
     private void verifyArrivalAtHome() {
         if (mc.player == null || home == null) return;
-
-        if (mc.player.getBlockPos().equals(home)) {
-            // arrived exactly at home
+    
+        // Accept arrival if exactly the same block pos OR within 1 block manhattan distance
+        BlockPos now = mc.player.getBlockPos();
+        int dx = Math.abs(now.getX() - home.getX());
+        int dy = Math.abs(now.getY() - home.getY());
+        int dz = Math.abs(now.getZ() - home.getZ());
+        int manhattan = dx + dy + dz;
+    
+        boolean closeEnough = now.equals(home) || (dx <= 1 && dy == 0 && dz <= 1) || manhattan <= 2;
+    
+        if (closeEnough) {
+            // arrived exactly (or acceptably close) at home
             homeArrivalRetries = 0;
-            if (debugMode.get()) Logger.info("Verified arrival at home: X=%d Y=%d Z=%d", home.getX(), home.getY(), home.getZ());
+            if (debugMode.get()) Logger.info("Verified arrival at home (close enough): X=%d Y=%d Z=%d (current=%s)", home.getX(), home.getY(), home.getZ(), now.toShortString());
             return;
         }
-
-        // if not exactly at home, attempt a few retries to correct path
+    
+        // if not close enough, attempt a few retries to correct path
         if (homeArrivalRetries < HOME_ARRIVAL_MAX_RETRIES) {
             homeArrivalRetries++;
-            if (debugMode.get()) Logger.warn("Home arrival off by %s. Retrying path to exact home (attempt %d/%d).", mc.player.getBlockPos().toShortString(), homeArrivalRetries, HOME_ARRIVAL_MAX_RETRIES);
+            if (debugMode.get()) Logger.warn("Home arrival off by %s. Retrying path to exact home (attempt %d/%d).", now.toShortString(), homeArrivalRetries, HOME_ARRIVAL_MAX_RETRIES);
             if (baritone != null) baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(home));
             // schedule another verification later
             eventQueue.add(new Event(true, this::verifyArrivalAtHome));
         } else {
             // give up after retries but reset counter
-            if (debugMode.get()) Logger.warn("Failed to perfectly arrive at home after %d retries. Current pos: %s, desired home: %s", HOME_ARRIVAL_MAX_RETRIES, mc.player.getBlockPos().toShortString(), home.toShortString());
+            if (debugMode.get()) Logger.warn("Failed to perfectly arrive at home after %d retries. Current pos: %s, desired home: %s (accepting close enough).",
+                HOME_ARRIVAL_MAX_RETRIES, now.toShortString(), home.toShortString());
             homeArrivalRetries = 0;
         }
     }
-
     @EventHandler
     private void onMessageReceive(ReceiveMessageEvent event) {
         if (!isActive()) return;
@@ -954,7 +962,7 @@ public class BetterBaritoneBuild extends Module {
     // helper that attempts to interact but enforces max attempts and updates timestamp
     private void performStorageInteractSafely(LinkedStorage linkedStorage) {
         if (mc.player == null || mc.interactionManager == null || linkedStorage == null) return;
-
+    
         if (openAttempts >= MAX_OPEN_ATTEMPTS) {
             Logger.error("Too many open attempts for storage at X=%s, Y=%s, Z=%s. Aborting fetch.", linkedStorage.blockPos.getX(), linkedStorage.blockPos.getY(), linkedStorage.blockPos.getZ());
             // fail-safe: clear queue so player regains control
@@ -963,25 +971,70 @@ public class BetterBaritoneBuild extends Module {
             openAttempts = 0;
             return;
         }
-
+    
         mc.setScreen(null); // Close any open screens to ensure that we can interact with the storage block
-
+    
         Vec3d hitPos = Vec3d.ofCenter(linkedStorage.blockPos);
         BlockHitResult hit = new BlockHitResult(hitPos, Direction.UP, linkedStorage.blockPos, false);
-
-        ActionResult result = mc.interactionManager.interactBlock(mc.player, Hand.MAIN_HAND, hit); // Attempt to interact with the block
+    
+        ActionResult result;
+        try {
+            result = mc.interactionManager.interactBlock(mc.player, Hand.MAIN_HAND, hit); // Attempt to interact with the block
+        } catch (Exception e) {
+            result = ActionResult.PASS;
+        }
+    
         lastInteractMs = System.currentTimeMillis();
         openAttempts++;
-
-        if (result.isAccepted()) { // If the interaction was successful, we can then make the player swing their hand
+    
+        if (result.isAccepted()) {
+            // interaction accepted: mark automated open and schedule a short wait for inventory to arrive.
             mc.player.swingHand(Hand.MAIN_HAND);
-            // mark that we automated this open so onInventory won't treat it as manual linking
             lastAutomatedInteractPos = linkedStorage.blockPos;
             lastAutomatedInteractMs = System.currentTimeMillis();
-
             if (debugMode.get()) Logger.info("Interact accepted (attempt #%d)", openAttempts);
+    
+            // Schedule a fallback poll: if inventory screen doesn't open via server event,
+            // try to process inventory after a short delay so we don't get stuck waiting forever.
+            MeteorExecutor.execute(() -> {
+                try {
+                    // wait a bit for server to send inventory packets
+                    Thread.sleep(200);
+                } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+    
+                // run on client thread to safely access screen handler
+                MinecraftClient.getInstance().execute(() -> {
+                    try {
+                        // If screen is open, onInventory event should have been fired; but in case it didn't, call moveSlots directly.
+                        if (mc.currentScreen != null && !itemsToFetch.isEmpty()) {
+                            StorageItem next = itemsToFetch.get(0);
+                            if (next != null) {
+                                moveSlots(next, mc.player.currentScreenHandler);
+                            }
+                        } else {
+                            // If the screen still didn't open, schedule another attempt (but don't loop forever)
+                            if (openAttempts < MAX_OPEN_ATTEMPTS) {
+                                // requeue a safe interact attempt later via eventQueue
+                                eventQueue.add(new Event(true, () -> performStorageInteractSafely(linkedStorage)));
+                            }
+                        }
+                    } catch (Exception e) {
+                        if (debugMode.get()) Logger.warn("Error in post-interact fallback: %s", e.getMessage());
+                    }
+                });
+            });
         } else {
+            // not accepted — schedule a retry after a short delay, but don't spam.
             if (debugMode.get()) Logger.warn("Interact not accepted (attempt #%d), result=%s", openAttempts, result.toString());
+    
+            // give a short delay then re-attempt safely
+            MeteorExecutor.execute(() -> {
+                try {
+                    Thread.sleep(300);
+                } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                // schedule the retry as a path-waiting event so it won't race with other tasks
+                eventQueue.add(new Event(true, () -> performStorageInteractSafely(linkedStorage)));
+            });
         }
     }
 
