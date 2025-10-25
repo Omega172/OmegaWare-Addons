@@ -657,7 +657,7 @@ public class BetterBaritoneBuild extends Module {
                             if (item != null) {
                                 JsonObject itemData = inventoryJson.getAsJsonObject(itemId);
                                 int count = itemData.get("count").getAsInt();
-                                linkedStorages.inventory.add(new ItemStack(item, count));
+                                linkedStorage.inventory.add(new ItemStack(item, count));
                             }
                         }
                     }
