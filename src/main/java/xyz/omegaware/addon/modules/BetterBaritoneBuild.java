@@ -695,8 +695,10 @@ public class BetterBaritoneBuild extends Module {
     private boolean playerHasItem(Item item) {
         if (mc.player == null) return false;
         try {
-            // iterate player's inventory main list
-            for (ItemStack s : mc.player.getInventory().main) {
+            // iterate player's inventory using public API
+            int size = mc.player.getInventory().size();
+            for (int i = 0; i < size; i++) {
+                ItemStack s = mc.player.getInventory().getStack(i);
                 if (s != null && !s.isEmpty() && s.getItem() == item && s.getCount() > 0) return true;
             }
         } catch (Exception ignored) {
