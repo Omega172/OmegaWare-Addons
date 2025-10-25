@@ -657,7 +657,7 @@ public class BetterBaritoneBuild extends Module {
                             if (item != null) {
                                 JsonObject itemData = inventoryJson.getAsJsonObject(itemId);
                                 int count = itemData.get("count").getAsInt();
-                                linkedStorage.inventory.add(new ItemStack(item, count));
+                                linkedStorages.inventory.add(new ItemStack(item, count));
                             }
                         }
                     }
@@ -830,7 +830,7 @@ public class BetterBaritoneBuild extends Module {
             mc.player.swingHand(Hand.MAIN_HAND);
             if (debugMode.get()) Logger.info("Interact accepted (attempt #%d)", openAttempts);
         } else {
-            if (debugMode.get()) Logger.warn("Interact not accepted (attempt #%d), result=%s", openAttempts, result.name());
+            if (debugMode.get()) Logger.warn("Interact not accepted (attempt #%d), result=%s", openAttempts, result.toString());
         }
     }
 
