@@ -1149,20 +1149,34 @@ public class BetterBaritoneBuild extends Module {
     private int playerItemCount(Item item) {
         if (mc.player == null) return 0;
         int total = 0;
+    
+        // Preferred: use public inventory accessors to avoid accessing private fields
         try {
-            // PlayerInventory.main is the standard yarn name for the main inventory list
-            for (ItemStack s : mc.player.getInventory().main) {
-                if (s.getItem() == item) total += s.getCount();
+            // Iterate all slots in the player's inventory using public API
+            int invSize = mc.player.getInventory().size(); // total inventory slots (including armor/extra depending on mappings)
+            for (int i = 0; i < invSize; i++) {
+                try {
+                    ItemStack s = mc.player.getInventory().getStack(i);
+                    if (s != null && !s.isEmpty() && s.getItem() == item) total += s.getCount();
+                } catch (Exception ignoredSlot) {
+                    // some mappings or server-side proxies may throw for certain indices; ignore and continue
+                }
             }
         } catch (Exception e) {
-            // fallback: try scanning via quick access / other APIs if mapping differs
+            // Fallback: try scanning common slot ranges (0-35 main+hotbar)
             try {
-                for (int i = 0; i < mc.player.getInventory().size(); i++) {
-                    ItemStack s = mc.player.getInventory().getStack(i);
-                    if (s.getItem() == item) total += s.getCount();
+                for (int i = 0; i < 36; i++) {
+                    try {
+                        ItemStack s = mc.player.getInventory().getStack(i);
+                        if (s != null && !s.isEmpty() && s.getItem() == item) total += s.getCount();
+                    } catch (Exception ignoredSlot) {}
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+                // last-resort: return 0 to avoid crashes
+                if (debugMode.get()) Logger.warn("playerItemCount fallback failed: %s", e.getMessage());
+                return 0;
+            }
         }
+    
         return total;
     }
-}
