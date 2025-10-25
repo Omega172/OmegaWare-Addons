@@ -52,9 +52,16 @@ import java.io.FileWriter;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 
+/**
+ * BetterBaritoneBuild (modified)
+ * - adds auto-resume-after-fetch behavior (defaults to true)
+ * - ensures resume executes on client thread immediately after fetch completes
+ * - keeps rest of your original logic intact (linking, indexing, queueing)
+ *
+ * Replace the existing file with this version.
+ */
 public class BetterBaritoneBuild extends Module {
     public BetterBaritoneBuild() {
         super(OmegawareAddons.CATEGORY, "better-baritone-build", "Enable this module to enhance Baritone's building capabilities with linked storage and item fetching features.");
@@ -165,9 +172,10 @@ public class BetterBaritoneBuild extends Module {
         .build()
     );
 
+    // NEW: Auto resume after fetching items (default true)
     private final Setting<Boolean> autoResumeAfterFetch = sgGeneral.add(new BoolSetting.Builder()
         .name("auto-resume-after-fetch")
-        .description("If enabled, module will automatically resume the build after fetching required items.")
+        .description("If enabled, the module will automatically resume the build after fetching required items.")
         .defaultValue(true)
         .build()
     );
@@ -195,7 +203,7 @@ public class BetterBaritoneBuild extends Module {
     private BlockPos buildAnchorPos = null;
     private float buildAnchorYaw = 0f;
     private boolean buildAnchorSet = false;
-    private static final float YAW_TOLERANCE_DEGREES = 12.0f; // yaw tolerance when auto-resuming
+    private static final float YAW_TOLERANCE_DEGREES = 8.0f; // yaw tolerance when auto-resuming
 
     // Timers to reduce debug spam
     private long lastHomeLogMs = 0L;
@@ -203,10 +211,7 @@ public class BetterBaritoneBuild extends Module {
 
     // home arrival retries
     private int homeArrivalRetries = 0;
-    private static final int HOME_ARRIVAL_MAX_RETRIES = 6;
-
-    // interaction wait times
-    private static final long SCREEN_OPEN_TIMEOUT_MS = 1200L; // wait up to 1.2s for screen to open after interact
+    private static final int HOME_ARRIVAL_MAX_RETRIES = 3;
 
     private static class LinkedStorage {
         public BlockPos blockPos;
@@ -398,20 +403,16 @@ public class BetterBaritoneBuild extends Module {
             eventQueue.clear();
             itemsToFetch.clear();
 
-            if (baritone != null) {
-                try {
-                    // Cancel existing tasks and immediately set new goal to home (do it immediately to avoid queue delays)
-                    baritone.getPathingBehavior().cancelEverything();
-                    baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(home));
-                } catch (Exception ex) {
-                    if (debugMode.get()) Logger.warn("Error while forcing Baritone home: %s", ex.getMessage());
-                }
-            }
+            if (baritone != null) baritone.getPathingBehavior().cancelEverything();
 
-            // Mark paused and schedule verification checks to ensure exact arrival
+            // Send Baritone home, but DO NOT auto-resume the build to avoid overlap/tumpang-tindih.
             stuckPaused = true;
             homeArrivalRetries = 0;
-            // schedule verification after baritone had time to path
+            eventQueue.add(new Event(false, () -> {
+                if (baritone != null) baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(home));
+            }));
+
+            // After giving the path command we schedule a verification event that ensures exact arrival
             eventQueue.add(new Event(true, this::verifyArrivalAtHome));
 
             if (debugMode.get()) {
@@ -433,7 +434,7 @@ public class BetterBaritoneBuild extends Module {
 
     // verifyArrivalAtHome will check if player is precisely at 'home' BlockPos and retry a few times if off by 1 block
     private void verifyArrivalAtHome() {
-        if (mc.player == null || home == null || baritone == null) return;
+        if (mc.player == null || home == null) return;
 
         if (mc.player.getBlockPos().equals(home)) {
             // arrived exactly at home
@@ -446,16 +447,7 @@ public class BetterBaritoneBuild extends Module {
         if (homeArrivalRetries < HOME_ARRIVAL_MAX_RETRIES) {
             homeArrivalRetries++;
             if (debugMode.get()) Logger.warn("Home arrival off by %s. Retrying path to exact home (attempt %d/%d).", mc.player.getBlockPos().toShortString(), homeArrivalRetries, HOME_ARRIVAL_MAX_RETRIES);
-            try {
-                baritone.getPathingBehavior().cancelEverything();
-            } catch (Exception ignored) {}
-
-            try {
-                baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(home));
-            } catch (Exception ex) {
-                if (debugMode.get()) Logger.warn("Error while re-sending home goal: %s", ex.getMessage());
-            }
-
+            if (baritone != null) baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(home));
             // schedule another verification later
             eventQueue.add(new Event(true, this::verifyArrivalAtHome));
         } else {
@@ -471,103 +463,87 @@ public class BetterBaritoneBuild extends Module {
         String original = event.getMessage().getString();
         if (original == null || original.isEmpty()) return;
 
-        String lower = original.toLowerCase().trim();
+        String msg = original.toLowerCase().trim();
 
-        // handle messages that contain "[baritone]" or just plain build commands
-        if (lower.contains("[baritone]") && !lower.contains("omegaware")) {
-            int index = lower.indexOf("[baritone]");
-            String msg = lower.substring(index + 10).trim();
-
-            // parse missing item lines: "10x block{minecraft:black_concrete}..."
-            if (msg.matches("\\d+x block\\{minecraft:[a-z_]+}.*")) {
-                String[] parts = msg.split(" ");
-
-                String blockCount = parts[0].replace("x", "").trim();
-                int count = Integer.parseInt(blockCount);
-                int stacks = (int) Math.ceil(count / 64.0);
-
-                String blockMessage = parts[1];
-                String blockName = blockMessage.substring(blockMessage.indexOf(':') + 1);
-
-                int endIndex = blockName.indexOf('}');
-                if (endIndex != -1) {
-                    blockName = blockName.substring(0, endIndex);
-                }
-
-                Identifier identifier = Identifier.of(blockName);
-                Item item = Registries.ITEM.get(identifier).asItem();
-
-                if (item == null) {
-                    if (debugMode.get()) Logger.error("Item not found: %s%s", Formatting.WHITE, blockName);
-                    return;
-                }
-
-                // 1) If player inventory already contains required count -> nothing to do
-                int playerCount = playerItemCount(item);
-                if (playerCount >= count) {
-                    if (debugMode.get()) Logger.info("Player already has %d of %s; skipping fetch.", playerCount, blockName);
-                    return;
-                }
-
-                // 2) Try to find in linked storages
-                LinkedStorage linkedStorage = findItem(item);
-                if (linkedStorage == null) {
-                    // start double-check flow: check all linked storages by opening them to refresh content
-                    if (debugMode.get()) Logger.info("Item %s not found in cached linked storages; performing double-check across storages.", blockName);
-
-                    doubleCheckAndFetch(item, stacks + extraStacks.get(), () -> {
-                        // not found after double-check -> take error action (notify and send home)
-                        Logger.error("No linked storage contains the item: %s%s", Formatting.WHITE, item.getName().getString());
-
-                        if (disconnectOnError.get()) {
-                            AutoReconnect autoReconnect = Modules.get().get(meteordevelopment.meteorclient.systems.modules.misc.AutoReconnect.class);
-                            if (autoReconnect != null && autoReconnect.isActive()) {
-                                autoReconnect.toggle();
-                            }
-
-                            String prefix = Logger.PREFIX.getString();
-                            MutableText text = Text.literal(String.format("%s%s%s%s %s", Formatting.GRAY, Formatting.BLUE, prefix.substring(0, prefix.length() - 1), Formatting.GRAY, Formatting.RED) + String.format("No linked storage contains the item: %s\n", item.getName().getString()));
-
-                            disconnectOnError.set(false); // Disable the setting to prevent infinite disconnects
-
-                            ClientPlayNetworkHandler networkHandler = mc.getNetworkHandler();
-                            if (networkHandler != null) {
-                                networkHandler.getConnection().disconnect(text);
-                            }
-                        }
-
-                        // ensure Baritone returns home in case of missing materials
-                        if (homeIfStuck.get() && home != null && baritone != null) {
-                            stuckPaused = true;
-                            eventQueue.clear();
-                            itemsToFetch.clear();
-                            try {
-                                baritone.getPathingBehavior().cancelEverything();
-                                baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(home));
-                            } catch (Exception ignored) {}
-                            eventQueue.add(new Event(true, this::verifyArrivalAtHome));
-                        }
-                    });
-
-                    return;
-                }
-
-                // found in cache - add to fetch queue and start fetch path
-                itemsToFetch.add(new StorageItem(item, stacks + extraStacks.get(), linkedStorage));
-                // if previously paused due to stuck, clear pause as this indicates intent to continue
-                stuckPaused = false;
-                pathToLinkedStorage(item, linkedStorage);
-                return;
-            }
+        if (!msg.contains("[baritone]") || msg.contains("omegaware")) {
+            // fall through to capture build commands if present
         }
 
-        // Also handle direct player-issued commands like "> build ..." or "build ..." (original-casing preserved)
+        if (msg.contains("[baritone]")) {
+            int index = msg.indexOf("[baritone]");
+            msg = msg.substring(index+10).trim(); // Remove the "[Baritone]" part
+        }
+
+        // parse baritone missing item message like: "10x block{minecraft:black_concrete}..."
+        if (msg.matches("\\d+x block\\{minecraft:[a-z_]+}.*")) {
+            String[] parts = msg.split(" ");
+
+            String blockCount = parts[0].replace("x", "").trim();
+            int count = Integer.parseInt(blockCount);
+            int stacks = (int) Math.ceil(count / 64.0);
+
+            String blockMessage = parts[1];
+            String blockName = blockMessage.substring(blockMessage.indexOf(':') + 1);
+
+            int endIndex = blockName.indexOf('}');
+            if (endIndex != -1) {
+                blockName = blockName.substring(0, endIndex);
+            }
+
+            Identifier identifier = Identifier.of(blockName);
+            Item item = Registries.ITEM.get(identifier).asItem();
+
+            if (item == null) {
+                if (debugMode.get()) Logger.error("Item not found: %s%s", Formatting.WHITE, blockName);
+                return;
+            }
+
+            if (itemsToFetch.stream().anyMatch(storageItem -> storageItem.item.equals(item))) {
+                if (debugMode.get()) {
+                    Logger.warn("Item already in queue: %s%s", Formatting.WHITE, item.getName().getString());
+                }
+                return;
+            }
+
+            LinkedStorage linkedStorage = findItem(item);
+            if (linkedStorage == null) {
+                Logger.error("No linked storage contains the item: %s%s", Formatting.WHITE, item.getName().getString());
+
+                if (disconnectOnError.get()) {
+                    AutoReconnect autoReconnect = Modules.get().get(meteordevelopment.meteorclient.systems.modules.misc.AutoReconnect.class);
+                    if (autoReconnect != null && autoReconnect.isActive()) {
+                        autoReconnect.toggle();
+                    }
+
+                    String prefix = Logger.PREFIX.getString();
+                    MutableText text = Text.literal(String.format("%s%s%s%s %s", Formatting.GRAY, Formatting.BLUE, prefix.substring(0, prefix.length() - 1), Formatting.GRAY, Formatting.RED) + String.format("No linked storage contains the item: %s\n", item.getName().getString()));
+
+                    disconnectOnError.set(false); // Disable the setting to prevent infinite disconnects
+
+                    ClientPlayNetworkHandler networkHandler = mc.getNetworkHandler();
+                    if (networkHandler != null) {
+                        networkHandler.getConnection().disconnect(text);
+                    }
+                }
+
+                return;
+            }
+
+            itemsToFetch.add(new StorageItem(item, stacks + extraStacks.get(), linkedStorage));
+
+            stuckPaused = false;
+
+            pathToLinkedStorage(item, linkedStorage);
+            return;
+        }
+
+        // capture explicit build commands (player typed)
         String trimmed = original.trim();
         if (trimmed.startsWith("> ")) trimmed = trimmed.substring(2).trim();
-        String tLower = trimmed.toLowerCase();
+        String trimmedLower = trimmed.toLowerCase();
 
-        if (tLower.startsWith("build") || tLower.startsWith("litematica")) {
-            buildCommand = trimmed; // store the original typing
+        if (trimmedLower.startsWith("build") || trimmedLower.startsWith("litematica")) {
+            buildCommand = trimmed; // store the original casing command for execution
             // capture anchor ONLY when player issues the build command
             if (mc.player != null) {
                 buildAnchorPos = mc.player.getBlockPos();
@@ -577,85 +553,16 @@ public class BetterBaritoneBuild extends Module {
                     Logger.info("Build anchor captured at %s yaw=%.1f. Command: %s", buildAnchorPos.toShortString(), buildAnchorYaw, buildCommand);
                 }
             }
-            // clear paused flag because user explicitly requested build
             stuckPaused = false;
             return;
         }
 
-        if (tLower.startsWith("stop") || tLower.startsWith("cancel")) {
+        if (trimmedLower.startsWith("stop") || trimmedLower.startsWith("cancel")) {
             buildCommand = "";
             eventQueue.clear();
             itemsToFetch.clear();
 
             Logger.info("Stop received.");
-        }
-    }
-
-    /**
-     * Double-check across all linked storages by pathing to each, opening and indexing their inventories.
-     * If item found on any storage, add to itemsToFetch and start fetching.
-     * If not found after checking all, invoke onNotFound callback.
-     */
-    private void doubleCheckAndFetch(Item item, int stacksNeeded, Runnable onNotFound) {
-        if (linkedStorages.isEmpty()) {
-            onNotFound.run();
-            return;
-        }
-
-        // copy storages sorted by distance to player
-        List<LinkedStorage> storagesToCheck = new ArrayList<>(linkedStorages);
-        if (mc.player != null) {
-            storagesToCheck.sort(Comparator.comparingDouble(s -> s.blockPos.getSquaredDistance(mc.player.getBlockPos())));
-        }
-
-        // We'll chain events: for each storage -> path -> interact -> index -> check
-        for (int i = 0; i < storagesToCheck.size(); i++) {
-            final LinkedStorage s = storagesToCheck.get(i);
-            // path to storage
-            eventQueue.add(new Event(true, () -> pathToPos(s.blockPos)));
-
-            // attempt to interact (open chest) - uses existing safe method
-            eventQueue.add(new Event(true, () -> performStorageInteractSafely(s)));
-
-            // after opening, index screen and update that one storage
-            final boolean isLast = (i == storagesToCheck.size() - 1);
-            eventQueue.add(new Event(true, () -> {
-                // index current screen immediately (if open)
-                try {
-                    LinkedStorage newIndex = indexStorage(mc.player != null ? mc.player.currentScreenHandler : null, s.blockPos);
-                    // replace storage entry in linkedStorages by pos
-                    if (newIndex != null) {
-                        boolean replaced = false;
-                        for (int j = 0; j < linkedStorages.size(); j++) {
-                            if (linkedStorages.get(j).blockPos.equals(newIndex.blockPos)) {
-                                linkedStorages.get(j).inventory = newIndex.inventory;
-                                replaced = true;
-                                break;
-                            }
-                        }
-                        if (!replaced) {
-                            linkedStorages.add(newIndex);
-                        }
-                        saveLinkedStorages();
-                    }
-                } catch (Exception ignored) { /* index may fail if screen not available - that's okay */ }
-
-                // after index, check if storage now contains item
-                LinkedStorage found = findItem(item);
-                if (found != null) {
-                    // add to fetch queue and path to it
-                    itemsToFetch.add(new StorageItem(item, stacksNeeded, found));
-                    // unpause
-                    stuckPaused = false;
-                    pathToLinkedStorage(item, found);
-                    // do not call onNotFound
-                } else {
-                    // if last checked storage and still not present -> call onNotFound
-                    if (isLast) {
-                        onNotFound.run();
-                    }
-                }
-            }));
         }
     }
 
@@ -841,7 +748,7 @@ public class BetterBaritoneBuild extends Module {
     }
 
     private void saveHome() {
-        File configFile = OmegawareAddOns_GetConfigFileSafe("better-build", "home.json");
+        File configFile = OmegawareAddons.GetConfigFile("better-build", "home.json");
 
         try {
             //noinspection ResultOfMethodCallIgnored
@@ -862,7 +769,7 @@ public class BetterBaritoneBuild extends Module {
     }
 
     private void loadHome() {
-        File configFile = OmegawareAddOns_GetConfigFileSafe("better-build", "home.json");
+        File configFile = OmegawareAddons.GetConfigFile("better-build", "home.json");
         if (!configFile.exists()) {
             OmegawareAddons.LOG.warn("{} not found!", configFile.toPath());
             return;
@@ -876,19 +783,6 @@ public class BetterBaritoneBuild extends Module {
             }
         } catch (Exception e) {
             OmegawareAddons.LOG.error("Failed to load home from {}: {}", configFile.toPath(), e.getMessage());
-        }
-    }
-
-    // safe wrapper for config file (defensive, in case MeteorClient folder layout changes)
-    private File OmegawareAddOns_GetConfigFileSafe(String key, String filename) {
-        try {
-            return OmegawareAddons.GetConfigFile(key, filename);
-        } catch (Exception e) {
-            // fallback to .minecraft/config/omegaware/better-build/
-            File f = new File(new File(MinecraftClient.getInstance().runDirectory, "config"), "omegaware");
-            File dir = new File(f, key);
-            dir.mkdirs();
-            return new File(dir, filename);
         }
     }
 
@@ -981,107 +875,36 @@ public class BetterBaritoneBuild extends Module {
     }
 
     // helper that attempts to interact but enforces max attempts and updates timestamp
-    // Non-blocking version: try an interact, then schedule several tick-checks to see if the screen opened.
-    // If screen opens -> spawn moveSlots in background. If not -> retry interact (bounded attempts).
     private void performStorageInteractSafely(LinkedStorage linkedStorage) {
         if (mc.player == null || mc.interactionManager == null || linkedStorage == null) return;
-    
-        // Limit attempts per storage using a map keyed by position
-        // We store attempts in a temporary field map; create if missing
-        // (use simple per-instance tracking using openAttempts variable reset on new path)
+
         if (openAttempts >= MAX_OPEN_ATTEMPTS) {
             Logger.error("Too many open attempts for storage at X=%s, Y=%s, Z=%s. Aborting fetch.", linkedStorage.blockPos.getX(), linkedStorage.blockPos.getY(), linkedStorage.blockPos.getZ());
+            // fail-safe: clear queue so player regains control
             eventQueue.clear();
             itemsToFetch.clear();
             openAttempts = 0;
             return;
         }
-    
-        // Close any open screens first to make sure interaction is applied cleanly
-        try {
-            mc.setScreen(null);
-        } catch (Exception ignored) {}
-    
-        // Try to interact once (non-blocking)
-        ActionResult result = ActionResult.PASS;
-        try {
-            Vec3d hitPos = Vec3d.ofCenter(linkedStorage.blockPos);
-            BlockHitResult hit = new BlockHitResult(hitPos, Direction.UP, linkedStorage.blockPos, false);
-            result = mc.interactionManager.interactBlock(mc.player, Hand.MAIN_HAND, hit);
-        } catch (Exception ex) {
-            if (debugMode.get()) Logger.warn("Exception when attempting interact: %s", ex.getMessage());
-        }
-    
-        // Update bookkeeping
+
+        mc.setScreen(null); // Close any open screens to ensure that we can interact with the storage block
+
+        Vec3d hitPos = Vec3d.ofCenter(linkedStorage.blockPos);
+        BlockHitResult hit = new BlockHitResult(hitPos, Direction.UP, linkedStorage.blockPos, false);
+
+        ActionResult result = mc.interactionManager.interactBlock(mc.player, Hand.MAIN_HAND, hit); // Attempt to interact with the block
         lastInteractMs = System.currentTimeMillis();
         openAttempts++;
-    
-        // Mark automated interaction immediately (so onInventory won't treat it as manual)
-        lastAutomatedInteractPos = linkedStorage.blockPos;
-        lastAutomatedInteractMs = System.currentTimeMillis();
-    
-        if (debugMode.get()) Logger.info("Performed non-blocking interact attempt #%d, result=%s, scheduling short checks for GUI open.", openAttempts, result.toString());
-    
-        // Schedule a few quick checks (one per tick) to see if the screen opened.
-        // We'll push N checks into the eventQueue as non-waiting events (they run next ticks).
-        final int checks = Math.max(3, (int)(SCREEN_OPEN_TIMEOUT_MS / 50)); // ~1 tick = 50ms; run several checks
-        for (int i = 0; i < checks; i++) {
-            // False => do not wait for path; execute in next ticks
-            eventQueue.add(new Event(false, () -> {
-                try {
-                    // If user closed world or screen no longer relevant, skip
-                    if (!isActive() || mc.player == null) return;
-    
-                    // If a container screen is open, treat as success
-                    if (mc.currentScreen != null) {
-                        // We consider screen open as success. Immediately hand off to background fetching.
-                        if (debugMode.get()) Logger.info("Detected open screen after interact for storage at %s", linkedStorage.blockPos.toShortString());
-    
-                        // Reset attempts
-                        openAttempts = 0;
-    
-                        // Pull the first queued storage item (if it matches this storage) and process it in background
-                        StorageItem first = null;
-                        if (!itemsToFetch.isEmpty()) first = itemsToFetch.get(0);
-    
-                        if (first != null && first.linkedStorage != null && first.linkedStorage.blockPos.equals(linkedStorage.blockPos)) {
-                            // Run moveSlots on an executor so we don't block client thread
-                            final StorageItem toProcess = first;
-                            MeteorExecutor.execute(() -> {
-                                try {
-                                    moveSlots(toProcess, mc.player.currentScreenHandler);
-                                } catch (Exception ex) {
-                                    if (debugMode.get()) Logger.warn("Error during moveSlots (background): %s", ex.getMessage());
-                                }
-                            });
-                        } else {
-                            // If nothing matches, just close the screen quickly so client regains control.
-                            MinecraftClient.getInstance().execute(() -> {
-                                try { if (mc.currentScreen != null) mc.setScreen(null); } catch (Exception ignored) {}
-                            });
-                        }
-                    } else {
-                        // Screen still not open: if we've exhausted attempts, schedule a retry interact (with delay via queue)
-                        if (openAttempts >= MAX_OPEN_ATTEMPTS) {
-                            if (debugMode.get()) Logger.warn("No screen opened after %d attempts for storage %s. Aborting.", openAttempts, linkedStorage.blockPos.toShortString());
-                            // abort: clear fetches to avoid endless loops
-                            itemsToFetch.removeIf(si -> si.linkedStorage != null && si.linkedStorage.blockPos.equals(linkedStorage.blockPos));
-                            openAttempts = 0;
-                            return;
-                        }
-    
-                        // No screen yet and still attempts left: schedule another interact attempt later
-                        // We add one event that will call performStorageInteractSafely again but with a slight pathing-wait to give server time
-                        if (debugMode.get()) Logger.info("No screen yet for storage %s; will re-attempt interact (attempt %d).", linkedStorage.blockPos.toShortString(), openAttempts+1);
-                        eventQueue.add(new Event(true, () -> {
-                            // Re-attempt interact (this will increment openAttempts again)
-                            performStorageInteractSafely(linkedStorage);
-                        }));
-                    }
-                } catch (Exception ex) {
-                    if (debugMode.get()) Logger.warn("Exception in scheduled open-check: %s", ex.getMessage());
-                }
-            }));
+
+        if (result.isAccepted()) { // If the interaction was successful, we can then make the player swing their hand
+            mc.player.swingHand(Hand.MAIN_HAND);
+            // mark that we automated this open so onInventory won't treat it as manual linking
+            lastAutomatedInteractPos = linkedStorage.blockPos;
+            lastAutomatedInteractMs = System.currentTimeMillis();
+
+            if (debugMode.get()) Logger.info("Interact accepted (attempt #%d)", openAttempts);
+        } else {
+            if (debugMode.get()) Logger.warn("Interact not accepted (attempt #%d), result=%s", openAttempts, result.toString());
         }
     }
 
@@ -1099,14 +922,6 @@ public class BetterBaritoneBuild extends Module {
         if (handler == null) {
             if (debugMode.get()) Logger.warn("moveSlots: no open screen handler to move items from.");
             // give up on this attempt - allow next attempt later
-            MeteorExecutor.execute(() -> {
-                try { Thread.sleep(300); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-                // if still itemsToFetch contains this item, re-queue path
-                if (itemsToFetch.stream().anyMatch(si -> si.item == storageItem.item)) {
-                    LinkedStorage ls = storageItem.linkedStorage;
-                    if (ls != null) pathToLinkedStorage(storageItem.item, ls);
-                }
-            });
             return;
         }
 
@@ -1153,14 +968,7 @@ public class BetterBaritoneBuild extends Module {
 
             count++;
             // perform shift-click to move item to player inventory
-            try {
-                InvUtils.shiftClick().slotId(i);
-            } catch (Exception ex) {
-                // fallback: try to click via handler if shiftClick utility fails in some mapping
-                try {
-                    handler.getSlot(i).takeStack(1);
-                } catch (Exception ignored) {}
-            }
+            InvUtils.shiftClick().slotId(i);
 
             // small delay after shift-click to let server sync
             try { Thread.sleep(AFTER_SHIFTCLICK_DELAY_MS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
@@ -1203,36 +1011,27 @@ public class BetterBaritoneBuild extends Module {
         lastAutomatedInteractPos = null;
         lastAutomatedInteractMs = 0L;
 
-        // If there are still items to fetch, schedule pathing to next storage
+        // NEW BEHAVIOR: If nothing left to fetch -> resume build IMMEDIATELY on client thread (unless stuckPaused)
         if (!itemsToFetch.isEmpty()) {
             // schedule path to next storage (first in list)
             StorageItem next = itemsToFetch.get(0);
             eventQueue.clear(); // clear stale events and requeue
             pathToLinkedStorage(next.item, next.linkedStorage);
         } else if (!buildCommand.isEmpty()) {
-            // nothing left to fetch -> resume build only if not paused due to Home-if-stuck and auto-resume enabled
             if (!stuckPaused && autoResumeAfterFetch.get()) {
-                // We attempt to resume immediately (don't over-constrain anchor here; user expects resume)
-                // However if anchor set and differs substantially, we give a warning but still may resume (configurable)
-                if (buildAnchorSet && mc.player != null) {
-                    BlockPos nowPos = mc.player.getBlockPos();
-                    float nowYaw = mc.player.getYaw();
-                    boolean posMatches = nowPos.equals(buildAnchorPos);
-                    boolean yawMatches = Math.abs(angleDistanceDegrees(nowYaw, buildAnchorYaw)) <= YAW_TOLERANCE_DEGREES;
-
-                    if (!posMatches && !yawMatches) {
-                        if (debugMode.get()) Logger.warn("Anchor mismatch on resume (current=%s yaw=%.1f / anchor=%s yaw=%.1f) — resuming anyway due to auto-resume setting.", nowPos.toShortString(), nowYaw, buildAnchorPos.toShortString(), buildAnchorYaw);
+                // Resume build on client thread immediately to avoid stale queue situations.
+                MinecraftClient.getInstance().execute(() -> {
+                    try {
+                        if (baritone != null && buildCommand != null && !buildCommand.isEmpty()) {
+                            baritone.getCommandManager().execute(buildCommand);
+                            if (debugMode.get()) Logger.info("Auto-resumed build: %s", buildCommand);
+                        }
+                    } catch (Exception ex) {
+                        if (debugMode.get()) Logger.warn("Failed to auto-resume build: %s", ex.getMessage());
                     }
-                }
-
-                // Execute resume immediately:
-                try {
-                    if (baritone != null) baritone.getCommandManager().execute(buildCommand);
-                } catch (Exception ex) {
-                    if (debugMode.get()) Logger.warn("Failed to resume build after fetch: %s", ex.getMessage());
-                }
+                });
             } else {
-                if (stuckPaused) Logger.info("Build remains paused (home-if-stuck triggered earlier). Re-issue build command to resume.");
+                Logger.info("Build remains paused (home-if-stuck triggered earlier). Re-issue build command to resume.");
             }
         }
     }
@@ -1244,37 +1043,5 @@ public class BetterBaritoneBuild extends Module {
         if (diff < -180.0f) diff += 360.0f;
         if (diff > 180.0f) diff -= 360.0f;
         return diff;
-    }
-
-    // count how many of this item are currently in player inventory (hotbar + main)
-    private int playerItemCount(Item item) {
-        if (mc.player == null) return 0;
-        int total = 0;
-
-        try {
-            int invSize = mc.player.getInventory().size();
-            for (int i = 0; i < invSize; i++) {
-                try {
-                    ItemStack s = mc.player.getInventory().getStack(i);
-                    if (s != null && !s.isEmpty() && s.getItem() == item) total += s.getCount();
-                } catch (Exception ignoredSlot) {
-                }
-            }
-        } catch (Exception e) {
-            // fallback safe scan (36 slots)
-            try {
-                for (int i = 0; i < 36; i++) {
-                    try {
-                        ItemStack s = mc.player.getInventory().getStack(i);
-                        if (s != null && !s.isEmpty() && s.getItem() == item) total += s.getCount();
-                    } catch (Exception ignoredSlot) {}
-                }
-            } catch (Exception ignored) {
-                if (debugMode.get()) Logger.warn("playerItemCount fallback failed: %s", e.getMessage());
-                return 0;
-            }
-        }
-
-        return total;
     }
 }
