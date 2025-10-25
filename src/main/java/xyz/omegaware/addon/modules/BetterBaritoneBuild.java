@@ -54,371 +54,40 @@ import java.nio.file.Files;
 import java.util.*;
 
 public class BetterBaritoneBuild extends Module {
-    public BetterBaritoneBuild() {
-        super(OmegawareAddons.CATEGORY, "better-baritone-build", "Enable this module to enhance Baritone's building capabilities with linked storage and item fetching features.");
-    }
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
-    private final SettingGroup sgGeneral = this.settings.getDefaultGroup();
-    private final SettingGroup sgRender = this.settings.createGroup("Render");
-    private final SettingGroup sgSafety = this.settings.createGroup("Safety & Resume");
-
+    // --- (FIX) Define all Settings Groups and Settings as uninitialized fields ---
+    private final SettingGroup sgGeneral;
+    private final SettingGroup sgRender;
+    private final SettingGroup sgSafety;
 
     // --- General Settings ---
-    private final Setting<Boolean> storageLinkMode = sgGeneral.add(new BoolSetting.Builder()
-        .name("storage-link-mode")
-        .description("If enabled, all storage blocks you interact with will be linked to this module.")
-        .defaultValue(false)
-        .build()
-    );
-
-    private final Setting<Integer> extraStacks = sgGeneral.add(new IntSetting.Builder()
-        .name("extra-stacks")
-        .description("The number of extra stacks to fetch from the linked storage.")
-        .defaultValue(0)
-        .min(0)
-        .sliderRange(0, 10)
-        .build()
-    );
-
-    private final Setting<Boolean> disconnectOnDone = sgGeneral.add(new BoolSetting.Builder()
-        .name("disconnect-on-done")
-        .description("If enabled, the module will disconnect you from the server when it is done.")
-        .defaultValue(false)
-        .build()
-    );
-
-    private final Setting<Boolean> disconnectOnError = sgGeneral.add(new BoolSetting.Builder()
-        .name("disconnect-on-error")
-        .description("If enabled, the module will disconnect you from the server when it encounters an error.")
-        .defaultValue(false)
-        .build()
-    );
-
-    private final Setting<Boolean> debugMode = sgGeneral.add(new BoolSetting.Builder()
-        .name("debug-mode")
-        .description("If enabled, the module will print debug information to the console.")
-        .defaultValue(false)
-        .build()
-    );
-
+    private final Setting<Boolean> storageLinkMode;
+    private final Setting<Integer> extraStacks;
+    private final Setting<Boolean> disconnectOnDone;
+    private final Setting<Boolean> disconnectOnError;
+    private final Setting<Boolean> debugMode;
 
     // --- Safety & Resume Settings ---
-    private final Setting<Boolean> homeIfStuck = sgSafety.add(new BoolSetting.Builder()
-        .name("home-if-stuck")
-        .description("If enabled, Baritone will return set home point if it gets stuck while building or fails double-check.")
-        .defaultValue(false)
-        .build()
-    );
-
-    private final Setting<Integer> homeIfStuckTimeout = sgSafety.add(new IntSetting.Builder()
-        .name("home-if-stuck-timeout")
-        .description("The timeout in seconds before Baritone returns to the home point if it gets stuck.")
-        .defaultValue(15)
-        .min(1)
-        .sliderRange(5, 120)
-        .visible(homeIfStuck::get)
-        .build()
-    );
-
-    private final Setting<Boolean> autoResumeOnFetchComplete = sgSafety.add(new BoolSetting.Builder()
-        .name("auto-resume-on-fetch")
-        .description("Automatically resume building after all items have been fetched.")
-        .defaultValue(true)
-        .build()
-    );
-
-    private final Setting<Boolean> requireAnchorMatchForResume = sgSafety.add(new BoolSetting.Builder()
-        .name("require-anchor-match")
-        .description("If auto-resume is on, only resume if player position and yaw match the initial build command anchor.")
-        .defaultValue(true)
-        .visible(autoResumeOnFetchComplete::get)
-        .build()
-    );
-
-    private final Setting<Double> anchorPosTolerance = sgSafety.add(new DoubleSetting.Builder()
-        .name("anchor-pos-tolerance")
-        .description("Maximum distance (blocks) from anchor position allowed for auto-resume.")
-        .defaultValue(2.0)
-        .min(0.5)
-        .sliderRange(0.5, 10.0)
-        .visible(() -> autoResumeOnFetchComplete.get() && requireAnchorMatchForResume.get())
-        .build()
-    );
-
-    private final Setting<Double> anchorYawTolerance = sgSafety.add(new DoubleSetting.Builder()
-        .name("anchor-yaw-tolerance")
-        .description("Maximum difference (degrees) from anchor yaw allowed for auto-resume.")
-        .defaultValue(15.0)
-        .min(1.0)
-        .sliderRange(1.0, 90.0)
-        .visible(() -> autoResumeOnFetchComplete.get() && requireAnchorMatchForResume.get())
-        .build()
-    );
-
-    private final Setting<Integer> afterShiftClickDelay = sgSafety.add(new IntSetting.Builder()
-        .name("after-shift-click-delay")
-        .description("Delay (ms) after shift-clicking an item to allow server inventory sync. (Higher = safer but slower).")
-        .defaultValue(350)
-        .min(50)
-        .sliderRange(50, 1000)
-        .build()
-    );
-
-    private final Setting<Integer> afterFetchResumeDelay = sgSafety.add(new IntSetting.Builder()
-        .name("after-fetch-resume-delay")
-        .description("Delay (ms) after closing GUI and before resuming build, allowing full sync. (Higher = safer).")
-        .defaultValue(400)
-        .min(100)
-        .sliderRange(100, 2000)
-        .build()
-    );
+    private final Setting<Boolean> homeIfStuck;
+    private final Setting<Integer> homeIfStuckTimeout;
+    private final Setting<Boolean> autoResumeOnFetchComplete;
+    private final Setting<Boolean> requireAnchorMatchForResume;
+    private final Setting<Double> anchorPosTolerance;
+    private final Setting<Double> anchorYawTolerance;
+    private final Setting<Integer> afterShiftClickDelay;
+    private final Setting<Integer> afterFetchResumeDelay;
 
     // --- Render Settings ---
-    private final Setting<Boolean> highlightLinkedStorages = sgRender.add(new BoolSetting.Builder()
-        .name("highlight-linked-storages")
-        .description("If enabled, linked storages will be highlighted with a box.")
-        .defaultValue(true)
-        .build()
-    );
-
-    private final Setting<Boolean> invertHighlight = sgRender.add(new BoolSetting.Builder()
-        .name("invert-highlight")
-        .description("If enabled, the highlight will be inverted (i.e. highlighted blocks will not be highlighted).")
-        .defaultValue(false)
-        .visible(highlightLinkedStorages::get)
-        .build()
-    );
-
-    private final Setting<ShapeMode> shapeMode = sgRender.add(new EnumSetting.Builder<ShapeMode>()
-            .name("shape-mode")
-            .description("How the shapes are rendered.")
-            .defaultValue(ShapeMode.Both)
-            .visible(this::isActive)
-            .build()
-    );
-
-    private final Setting<SettingColor> sideColor = sgRender.add(new ColorSetting.Builder()
-            .name("side-color")
-            .description("The side color of the rendering.")
-            .defaultValue(new SettingColor(0, 255, 255, 40))
-            .visible(() -> shapeMode.get().sides())
-            .build()
-    );
-
-    private final Setting<SettingColor> lineColor = sgRender.add(new ColorSetting.Builder()
-            .name("line-color")
-            .description("The line color of the rendering.")
-            .defaultValue(new SettingColor(0, 255, 255, 255))
-            .visible(() -> shapeMode.get().lines())
-            .build()
-    );
+    private final Setting<Boolean> highlightLinkedStorages;
+    private final Setting<Boolean> invertHighlight;
+    private final Setting<ShapeMode> shapeMode;
+    private final Setting<SettingColor> sideColor;
+    private final Setting<SettingColor> lineColor;
     
-    // Deprecated, unused setting. Kept for config compatibility but hidden.
-    private final Setting<Boolean> ignoreY = sgGeneral.add(new BoolSetting.Builder()
-        .name("baritone-ignore-y")
-        .description("DEPRECATED: This setting is no longer used.")
-        .defaultValue(false)
-        .visible(() -> false) // Hide from GUI
-        .build()
-    );
-
-
-    IBaritone baritone = null;
-
-    // --- Concurrency / safety flags for storage fetching ---
-    private volatile boolean isFetching = false; // ensure only one fetch job at a time
-    private long lastInteractMs = 0L;
-    private int openAttempts = 0;
-    private final long INTERACT_DEBOUNCE_MS = 800L; // don't interact faster than this
-    private final int MAX_OPEN_ATTEMPTS = 6; // abort after this many failed open tries
-
-    // automated open tracking & double-check support
-    private BlockPos lastAutomatedInteractPos = null;
-    private long lastAutomatedInteractMs = 0L;
-    private BlockPos lastBlockInteractPos = null; // last pos *player* interacted with
-
-    // if Baritone returned home due to stuck/no items, we pause the build
-    private boolean stuckPaused = false;
-
-    // --- State Machine Flags (NEW) ---
-    // true if module is actively pathing/fetching/checking
-    private boolean isResolvingDependencies = false;
-    
-    // Double-check state
-    private boolean doubleCheckInProgress = false; // only true *during* scheduleDoubleCheckSequence
-    private final Set<BlockPos> doubleCheckPos = new HashSet<>(); // pos allowed to be indexed when opened by automated double-check
-    private final List<PendingCheck> pendingChecks = new ArrayList<>();
-
-    private static class PendingCheck {
-        Item item;
-        int stacks;
-        PendingCheck(Item item, int stacks) { this.item = item; this.stacks = stacks; }
-    }
-
-    // Anchor info for build consistency
-    private BlockPos buildAnchorPos = null;
-    private float buildAnchorYaw = 0f;
-    private boolean buildAnchorSet = false;
-
-Setting<Boolean> storageLinkMode = sgGeneral.add(new BoolSetting.Builder()
-        .name("storage-link-mode")
-        .description("If enabled, all storage blocks you interact with will be linked to this module.")
-        .defaultValue(false)
-        .build()
-    );
-
-    private final Setting<Integer> extraStacks = sgGeneral.add(new IntSetting.Builder()
-        .name("extra-stacks")
-        .description("The number of extra stacks to fetch from the linked storage.")
-        .defaultValue(0)
-        .min(0)
-        .sliderRange(0, 10)
-        .build()
-    );
-
-    private final Setting<Boolean> disconnectOnDone = sgGeneral.add(new BoolSetting.Builder()
-        .name("disconnect-on-done")
-        .description("If enabled, the module will disconnect you from the server when it is done.")
-        .defaultValue(false)
-        .build()
-    );
-
-    private final Setting<Boolean> disconnectOnError = sgGeneral.add(new BoolSetting.Builder()
-        .name("disconnect-on-error")
-        .description("If enabled, the module will disconnect you from the server when it encounters an error.")
-        .defaultValue(false)
-        .build()
-    );
-
-    private final Setting<Boolean> debugMode = sgGeneral.add(new BoolSetting.Builder()
-        .name("debug-mode")
-        .description("If enabled, the module will print debug information to the console.")
-        .defaultValue(false)
-        .build()
-    );
-
-
-    // --- Safety & Resume Settings ---
-    private final Setting<Boolean> homeIfStuck = sgSafety.add(new BoolSetting.Builder()
-        .name("home-if-stuck")
-        .description("If enabled, Baritone will return set home point if it gets stuck while building or fails double-check.")
-        .defaultValue(false)
-        .build()
-    );
-
-    private final Setting<Integer> homeIfStuckTimeout = sgSafety.add(new IntSetting.Builder()
-        .name("home-if-stuck-timeout")
-        .description("The timeout in seconds before Baritone returns to the home point if it gets stuck.")
-        .defaultValue(15)
-        .min(1)
-        .sliderRange(5, 120)
-        .visible(homeIfStuck::get)
-        .build()
-    );
-
-    private final Setting<Boolean> autoResumeOnFetchComplete = sgSafety.add(new BoolSetting.Builder()
-        .name("auto-resume-on-fetch")
-        .description("Automatically resume building after all items have been fetched.")
-        .defaultValue(true)
-        .build()
-    );
-
-    private final Setting<Boolean> requireAnchorMatchForResume = sgSafety.add(new BoolSetting.Builder()
-        .name("require-anchor-match")
-        .description("If auto-resume is on, only resume if player position and yaw match the initial build command anchor.")
-        .defaultValue(true)
-        .visible(autoResumeOnFetchComplete::get)
-        .build()
-    );
-
-    private final Setting<Double> anchorPosTolerance = sgSafety.add(new DoubleSetting.Builder()
-        .name("anchor-pos-tolerance")
-        .description("Maximum distance (blocks) from anchor position allowed for auto-resume.")
-        .defaultValue(2.0)
-        .min(0.5)
-        .sliderRange(0.5, 10.0)
-        .visible(() -> autoResumeOnFetchComplete.get() && requireAnchorMatchForResume.get())
-        .build()
-    );
-
-    private final Setting<Double> anchorYawTolerance = sgSafety.add(new DoubleSetting.Builder()
-        .name("anchor-yaw-tolerance")
-        .description("Maximum difference (degrees) from anchor yaw allowed for auto-resume.")
-        .defaultValue(15.0)
-        .min(1.0)
-        .sliderRange(1.0, 90.0)
-        .visible(() -> autoResumeOnFetchComplete.get() && requireAnchorMatchForResume.get())
-        .build()
-    );
-
-    private final Setting<Integer> afterShiftClickDelay = sgSafety.add(new IntSetting.Builder()
-        .name("after-shift-click-delay")
-        .description("Delay (ms) after shift-clicking an item to allow server inventory sync. (Higher = safer but slower).")
-        .defaultValue(350)
-        .min(50)
-        .sliderRange(50, 1000)
-        .build()
-    );
-
-    private final Setting<Integer> afterFetchResumeDelay = sgSafety.add(new IntSetting.Builder()
-        .name("after-fetch-resume-delay")
-        .description("Delay (ms) after closing GUI and before resuming build, allowing full sync. (Higher = safer).")
-        .defaultValue(400)
-        .min(100)
-        .sliderRange(100, 2000)
-        .build()
-    );
-
-    // --- Render Settings ---
-    private final Setting<Boolean> highlightLinkedStorages = sgRender.add(new BoolSetting.Builder()
-        .name("highlight-linked-storages")
-        .description("If enabled, linked storages will be highlighted with a box.")
-        .defaultValue(true)
-        .build()
-    );
-
-    private final Setting<Boolean> invertHighlight = sgRender.add(new BoolSetting.Builder()
-        .name("invert-highlight")
-        .description("If enabled, the highlight will be inverted (i.e. highlighted blocks will not be highlighted).")
-        .defaultValue(false)
-        .visible(highlightLinkedStorages::get)
-        .build()
-    );
-
-    private final Setting<ShapeMode> shapeMode = sgRender.add(new EnumSetting.Builder<ShapeMode>()
-            .name("shape-mode")
-            .description("How the shapes are rendered.")
-            .defaultValue(ShapeMode.Both)
-            .visible(this::isActive)
-            .build()
-    );
-
-    private final Setting<SettingColor> sideColor = sgRender.add(new ColorSetting.Builder()
-            .name("side-color")
-            .description("The side color of the rendering.")
-            .defaultValue(new SettingColor(0, 255, 255, 40))
-            .visible(() -> shapeMode.get().sides())
-            .build()
-    );
-
-    private final Setting<SettingColor> lineColor = sgRender.add(new ColorSetting.Builder()
-            .name("line-color")
-            .description("The line color of the rendering.")
-            .defaultValue(new SettingColor(0, 255, 255, 255))
-            .visible(() -> shapeMode.get().lines())
-            .build()
-    );
-    
-    // Deprecated, unused setting. Kept for config compatibility but hidden.
-    private final Setting<Boolean> ignoreY = sgGeneral.add(new BoolSetting.Builder()
-        .name("baritone-ignore-y")
-        .description("DEPRECATED: This setting is no longer used.")
-        .defaultValue(false)
-        .visible(() -> false) // Hide from GUI
-        .build()
-    );
+    // Deprecated, unused setting
+    private final Setting<Boolean> ignoreY;
 
 
     IBaritone baritone = null;
@@ -511,6 +180,177 @@ Setting<Boolean> storageLinkMode = sgGeneral.add(new BoolSetting.Builder()
     private BlockPos home = null;
     private int ticksStuck = 0;
     private BlockPos lastBlockPos = null;
+
+
+    // (MODIFIED) All settings are now initialized in the constructor
+    public BetterBaritoneBuild() {
+        super(OmegawareAddons.CATEGORY, "better-baritone-build", "Enable this module to enhance Baritone's building capabilities with linked storage and item fetching features.");
+
+        // --- Initialize all Settings Groups and Settings *inside* the constructor ---
+        sgGeneral = this.settings.getDefaultGroup();
+        sgRender = this.settings.createGroup("Render");
+        sgSafety = this.settings.createGroup("Safety & Resume");
+
+
+        // --- General Settings ---
+        storageLinkMode = sgGeneral.add(new BoolSetting.Builder()
+            .name("storage-link-mode")
+            .description("If enabled, all storage blocks you interact with will be linked to this module.")
+            .defaultValue(false)
+            .build()
+        );
+
+        extraStacks = sgGeneral.add(new IntSetting.Builder()
+            .name("extra-stacks")
+            .description("The number of extra stacks to fetch from the linked storage.")
+            .defaultValue(0)
+            .min(0)
+            .sliderRange(0, 10)
+            .build()
+        );
+
+        disconnectOnDone = sgGeneral.add(new BoolSetting.Builder()
+            .name("disconnect-on-done")
+            .description("If enabled, the module will disconnect you from the server when it is done.")
+            .defaultValue(false)
+            .build()
+        );
+
+        disconnectOnError = sgGeneral.add(new BoolSetting.Builder()
+            .name("disconnect-on-error")
+            .description("If enabled, the module will disconnect you from the server when it encounters an error.")
+            .defaultValue(false)
+            .build()
+        );
+
+        debugMode = sgGeneral.add(new BoolSetting.Builder()
+            .name("debug-mode")
+            .description("If enabled, the module will print debug information to the console.")
+            .defaultValue(false)
+            .build()
+        );
+
+
+        // --- Safety & Resume Settings ---
+        homeIfStuck = sgSafety.add(new BoolSetting.Builder()
+            .name("home-if-stuck")
+            .description("If enabled, Baritone will return set home point if it gets stuck while building or fails double-check.")
+            .defaultValue(false)
+            .build()
+        );
+
+        homeIfStuckTimeout = sgSafety.add(new IntSetting.Builder()
+            .name("home-if-stuck-timeout")
+            .description("The timeout in seconds before Baritone returns to the home point if it gets stuck.")
+            .defaultValue(15)
+            .min(1)
+            .sliderRange(5, 120)
+            .visible(homeIfStuck::get)
+            .build()
+        );
+
+        autoResumeOnFetchComplete = sgSafety.add(new BoolSetting.Builder()
+            .name("auto-resume-on-fetch")
+            .description("Automatically resume building after all items have been fetched.")
+            .defaultValue(true)
+            .build()
+        );
+
+        requireAnchorMatchForResume = sgSafety.add(new BoolSetting.Builder()
+            .name("require-anchor-match")
+            .description("If auto-resume is on, only resume if player position and yaw match the initial build command anchor.")
+            .defaultValue(true)
+            .visible(autoResumeOnFetchComplete::get)
+            .build()
+        );
+
+        anchorPosTolerance = sgSafety.add(new DoubleSetting.Builder()
+            .name("anchor-pos-tolerance")
+            .description("Maximum distance (blocks) from anchor position allowed for auto-resume.")
+            .defaultValue(2.0)
+            .min(0.5)
+            .sliderRange(0.5, 10.0)
+            .visible(() -> autoResumeOnFetchComplete.get() && requireAnchorMatchForResume.get())
+            .build()
+        );
+
+        anchorYawTolerance = sgSafety.add(new DoubleSetting.Builder()
+            .name("anchor-yaw-tolerance")
+            .description("Maximum difference (degrees) from anchor yaw allowed for auto-resume.")
+            .defaultValue(15.0)
+            .min(1.0)
+            .sliderRange(1.0, 90.0)
+            .visible(() -> autoResumeOnFetchComplete.get() && requireAnchorMatchForResume.get())
+            .build()
+        );
+
+        afterShiftClickDelay = sgSafety.add(new IntSetting.Builder()
+            .name("after-shift-click-delay")
+            .description("Delay (ms) after shift-clicking an item to allow server inventory sync. (Higher = safer but slower).")
+            .defaultValue(350)
+            .min(50)
+            .sliderRange(50, 1000)
+            .build()
+        );
+
+        afterFetchResumeDelay = sgSafety.add(new IntSetting.Builder()
+            .name("after-fetch-resume-delay")
+            .description("Delay (ms) after closing GUI and before resuming build, allowing full sync. (Higher = safer).")
+            .defaultValue(400)
+            .min(100)
+            .sliderRange(100, 2000)
+            .build()
+        );
+
+        // --- Render Settings ---
+        highlightLinkedStorages = sgRender.add(new BoolSetting.Builder()
+            .name("highlight-linked-storages")
+            .description("If enabled, linked storages will be highlighted with a box.")
+            .defaultValue(true)
+            .build()
+        );
+
+        invertHighlight = sgRender.add(new BoolSetting.Builder()
+            .name("invert-highlight")
+            .description("If enabled, the highlight will be inverted (i.e. highlighted blocks will not be highlighted).")
+            .defaultValue(false)
+            .visible(highlightLinkedStorages::get)
+            .build()
+        );
+
+        shapeMode = sgRender.add(new EnumSetting.Builder<ShapeMode>()
+                .name("shape-mode")
+                .description("How the shapes are rendered.")
+                .defaultValue(ShapeMode.Both)
+                .visible(this::isActive)
+                .build()
+        );
+
+        sideColor = sgRender.add(new ColorSetting.Builder()
+                .name("side-color")
+                .description("The side color of the rendering.")
+                .defaultValue(new SettingColor(0, 255, 255, 40))
+                .visible(() -> shapeMode.get().sides())
+                .build()
+        );
+
+        lineColor = sgRender.add(new ColorSetting.Builder()
+                .name("line-color")
+                .description("The line color of the rendering.")
+                .defaultValue(new SettingColor(0, 255, 255, 255))
+                .visible(() -> shapeMode.get().lines())
+                .build()
+        );
+        
+        // Deprecated, unused setting
+        ignoreY = sgGeneral.add(new BoolSetting.Builder()
+            .name("baritone-ignore-y")
+            .description("DEPRECATED: This setting is no longer used.")
+            .defaultValue(false)
+            .visible(() -> false) // Hide from GUI
+            .build()
+        );
+    } // --- End of Constructor ---
 
 
     @Override
