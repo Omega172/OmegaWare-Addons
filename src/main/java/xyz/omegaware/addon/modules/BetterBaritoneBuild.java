@@ -220,7 +220,7 @@ public class BetterBaritoneBuild extends Module {
         .name("baritone-ignore-y")
         .description("DEPRECATED: This setting is no longer used.")
         .defaultValue(false)
-        .visible(() -> false) // Hide from GUI (FIXED: Was `.visible(false)`)
+        .visible(() -> false) // Hide from GUI
         .build()
     );
 
@@ -231,7 +231,7 @@ public class BetterBaritoneBuild extends Module {
     private volatile boolean isFetching = false; // ensure only one fetch job at a time
     private long lastInteractMs = 0L;
     private int openAttempts = 0;
-    private final long INTERACT_DEBOB_MS = 800L; // don't interact faster than this
+    private final long INTERACT_DEBOUNCE_MS = 800L; // don't interact faster than this
     private final int MAX_OPEN_ATTEMPTS = 6; // abort after this many failed open tries
 
     // automated open tracking & double-check support
@@ -512,17 +512,71 @@ public class BetterBaritoneBuild extends Module {
         String original = event.getMessage().getString();
         if (original == null || original.isEmpty()) return;
 
+        // --- Get normalized Baritone message (if any) ---
         String msgLower = original.toLowerCase().trim();
-
-        // capture baritone messages then normalise
+        String baritoneMsg = null;
         if (msgLower.contains("[baritone]")) {
             int index = msgLower.indexOf("[baritone]");
-            msgLower = msgLower.substring(index + 10).trim();
+            baritoneMsg = msgLower.substring(index + 10).trim();
         }
 
-        // parse missing items notice
-        if (msgLower.matches("\\d+x block\\{minecraft:[a-z_]+}.*")) {
-            String[] parts = msgLower.split(" ");
+        // --- Handle Player-Sent Commands First ---
+        String trimmed = original.trim();
+        String commandPrefix = null;
+        
+        if (trimmed.startsWith("> ")) {
+             trimmed = trimmed.substring(2).trim(); // Handle commands sent by player
+             commandPrefix = ">";
+        } else if (trimmed.startsWith("#")) {
+            trimmed = trimmed.substring(1).trim(); // Handle Baritone commands sent via chat
+            commandPrefix = "#";
+        }
+        
+        String trimmedLower = trimmed.toLowerCase();
+        
+        // --- 1. Handle Build Command ---
+        if (commandPrefix != null && (trimmedLower.startsWith("build") || trimmedLower.startsWith("litematica"))) {
+            // Store the command *without* the prefix
+            buildCommand = trimmed; 
+
+            // capture anchor when player issues build
+            if (mc.player != null) {
+                buildAnchorPos = mc.player.getBlockPos();
+                buildAnchorYaw = mc.player.getYaw();
+                buildAnchorSet = true;
+                if (debugMode.get()) Logger.info("Build anchor captured at %s yaw=%.1f. Command: %s", buildAnchorPos.toShortString(), buildAnchorYaw, buildCommand);
+            }
+            // clear paused flag because user explicitly requested build
+            stuckPaused = false;
+            ticksStuck = 0; // Reset stuck counter on new command
+            lastBlockPos = mc.player.getBlockPos();
+            
+            if (debugMode.get()) Logger.info("Build command received, stuckPaused cleared.");
+            return; // Command processed
+        }
+
+        // --- 2. Handle Stop/Cancel Command ---
+        // **FIX:** Use .equals() to prevent partial matches (e.g., "cancel to cancel")
+        if (commandPrefix != null && (trimmedLower.equals("stop") || trimmedLower.equals("cancel"))) {
+            buildCommand = "";
+            buildAnchorSet = false;
+            eventQueue.clear();
+            itemsToFetch.clear();
+            pendingChecks.clear();
+            doubleCheckPos.clear();
+            doubleCheckInProgress = false;
+            stuckPaused = false;
+
+            Logger.info("Stop/Cancel received. All tasks cleared.");
+            return; // Command processed
+        }
+        
+        // --- 3. Handle Baritone-Sent Messages ---
+        if (baritoneMsg == null) return; // Not a baritone message, ignore
+
+        // --- 3a. Handle Missing Items ---
+        if (baritoneMsg.matches("\\d+x block\\{minecraft:[a-z_]+}.*")) {
+            String[] parts = baritoneMsg.split(" ");
 
             String blockCount = parts[0].replace("x", "").trim();
             int count = Integer.parseInt(blockCount);
@@ -575,8 +629,8 @@ public class BetterBaritoneBuild extends Module {
             return;
         }
 
-        // done building
-        if (msgLower.contains("done building")) {
+        // --- 3b. Handle "Done Building" ---
+        if (baritoneMsg.contains("done building")) {
             if (debugMode.get()) {
                 Logger.info("Baritone has finished building!");
             }
@@ -601,55 +655,13 @@ public class BetterBaritoneBuild extends Module {
             }
             return;
         }
-
-        // capture explicit build commands (player typed)
-        String trimmed = original.trim();
-        if (trimmed.startsWith("> ")) trimmed = trimmed.substring(2).trim(); // Handle commands sent by player
-        String trimmedLower = trimmed.toLowerCase();
-
-        // Check for Baritone commands sent via chat (e.g., #build)
-        if (trimmed.startsWith("#")) {
-            trimmed = trimmed.substring(1).trim();
-            trimmedLower = trimmed.toLowerCase();
-        }
-
-        if (trimmedLower.startsWith("build") || trimmedLower.startsWith("litematica")) {
-            // Store the full command including the prefix (if any) Baritone expects
-            if (original.trim().startsWith("#")) {
-                 buildCommand = original.trim().substring(1).trim(); // Store command without '#'
-            } else if (original.trim().startsWith("> ")) {
-                buildCommand = original.trim().substring(2).trim(); // Store command without '> '
-            } else {
-                 buildCommand = original.trim(); // Store as-is (e.g. if sent from Baritone's own input)
-            }
-
-            // capture anchor when player issues build
-            if (mc.player != null) {
-                buildAnchorPos = mc.player.getBlockPos();
-                buildAnchorYaw = mc.player.getYaw();
-                buildAnchorSet = true;
-                if (debugMode.get()) Logger.info("Build anchor captured at %s yaw=%.1f. Command: %s", buildAnchorPos.toShortString(), buildAnchorYaw, buildCommand);
-            }
-            // clear paused flag because user explicitly requested build
-            stuckPaused = false;
-            ticksStuck = 0; // Reset stuck counter on new command
-            lastBlockPos = mc.player.getBlockPos();
-            
-            if (debugMode.get()) Logger.info("Build command received, stuckPaused cleared.");
+        
+        // --- 3c. (NEW) Handle Baritone's Own Pause ---
+        if (baritoneMsg.contains("unable to do it. pausing.")) {
+            if (debugMode.get()) Logger.warn("Baritone has paused. Setting stuckPaused=true. User must manually resume.");
+            stuckPaused = true;
+            // Do NOT clear buildCommand. Just pause our own logic.
             return;
-        }
-
-        if (trimmedLower.startsWith("stop") || trimmedLower.startsWith("cancel")) {
-            buildCommand = "";
-            buildAnchorSet = false;
-            eventQueue.clear();
-            itemsToFetch.clear();
-            pendingChecks.clear();
-            doubleCheckPos.clear();
-            doubleCheckInProgress = false;
-            stuckPaused = false;
-
-            Logger.info("Stop received. All tasks cleared.");
         }
     }
 
@@ -1101,11 +1113,11 @@ public class BetterBaritoneBuild extends Module {
         // 2) After arriving, attempt to interact (debounced)
         eventQueue.add(new Event(true, () -> {
             long now = System.currentTimeMillis();
-            if (now - lastInteractMs < INTERACT_DEBOB_MS) {
+            if (now - lastInteractMs < INTERACT_DEBOUNCE_MS) {
                 if (debugMode.get()) Logger.warn("Interact debounced, skipping immediate interact (delta=%dms)", now - lastInteractMs);
                 // requeue a safer interact attempt slightly later
                 MeteorExecutor.execute(() -> {
-                    try { Thread.sleep(INTERACT_DEBOB_MS); } catch (InterruptedException ex) { Thread.currentThread().interrupt(); }
+                    try { Thread.sleep(INTERACT_DEBOUNCE_MS); } catch (InterruptedException ex) { Thread.currentThread().interrupt(); }
                     // schedule on next tick via event queue
                     eventQueue.add(new Event(true, () -> {
                         performStorageInteractSafely(linkedStorage);
@@ -1297,6 +1309,8 @@ public class BetterBaritoneBuild extends Module {
         lastAutomatedInteractPos = null;
         lastAutomatedInteractMs = 0L;
 
+        // --- (FIX 1) START: Check all tasks before resuming ---
+
         // If there are still items to fetch, schedule pathing to next storage
         if (!itemsToFetch.isEmpty()) {
             // schedule path to next storage (first in list)
@@ -1306,8 +1320,17 @@ public class BetterBaritoneBuild extends Module {
             return;
         }
 
+        // If fetch list is empty, but a double-check is running or pending,
+        // just wait. The double-check will re-queue fetches if it finds items.
+        if (doubleCheckInProgress || !pendingChecks.isEmpty()) {
+            if (debugMode.get()) Logger.info("Fetch task complete, but double-check is active. Waiting for double-check to finish.");
+            return;
+        }
+        
+        // --- (FIX 1) END ---
+
         // --- FETCH COMPLETE ---
-        // If we reached here, fetch finished (no more itemsToFetch)
+        // (Only runs if itemsToFetch is empty AND doubleCheckInProgress is false AND pendingChecks is empty)
         
         // 1. Check if we should auto-resume at all
         if (!autoResumeOnFetchComplete.get()) {
@@ -1444,9 +1467,7 @@ public class BetterBaritoneBuild extends Module {
             if (!resumed && !stuckPaused && mc.player != null && mc.getNetworkHandler() != null) {
                 try {
                     // Send as a chat command (starting with #)
-                    String chatCmd = "#" + buildCommand.trim();
-
-                    if (debugMode.get()) Logger.info("Fallback: sending build command as chat message: %s", chatCmd);
+                    if (debugMode.get()) Logger.info("Fallback: sending build command as chat message: %s", buildCommand);
                     MinecraftClient.getInstance().execute(() -> {
                         try {
                             // Use sendChatCommand for '#' commands
@@ -1477,3 +1498,4 @@ public class BetterBaritoneBuild extends Module {
         return total;
     }
 }
+
