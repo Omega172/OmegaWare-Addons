@@ -1130,7 +1130,24 @@ public class BetterBaritoneBuild extends Module {
             // perform shift-click to move item to player inventory
             InvUtils.shiftClick().slotId(i);
     
-            // small delay after shift-click to let server sync
+            // After shift-click, wait a bit and then verify player inventory increased for that item.
+            // We'll wait up to a short timeout to allow server sync.
+            final int desiredGainPerClick = 1; // at least one stack/item moved per successful shift if present
+            final long perClickTimeoutMs = 1200L; // wait up to 1.2s for server to sync after shift-click
+            long startWait = System.currentTimeMillis();
+            boolean seen = false;
+            while (System.currentTimeMillis() - startWait < perClickTimeoutMs) {
+                try { Thread.sleep(60); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+                if (getPlayerItemCount(storageItem.item) > 0) { // if player has at least 1 of this item now
+                    seen = true;
+                    break;
+                }
+            }
+            if (debugMode.get()) {
+                Logger.info("After shift-click: item=%s seenInInv=%s (attempt %d), playerCount=%d", storageItem.item.getName().getString(), seen, count, getPlayerItemCount(storageItem.item));
+            }
+    
+            // small delay after shift-click to let server sync more
             try { Thread.sleep(AFTER_SHIFTCLICK_DELAY_MS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
     
             if (count >= storageItem.stacks) {
@@ -1141,7 +1158,7 @@ public class BetterBaritoneBuild extends Module {
         // Update the single storageItem's remaining stacks
         int remaining = Math.max(0, storageItem.stacks - count);
     
-        // Remove the processed item from itemsToFetch
+        // Remove the processed item from itemsToFetch (we always remove the instance we processed)
         itemsToFetch.removeIf(si -> {
             if (si.item == storageItem.item) {
                 if (si.linkedStorage == null && storageItem.linkedStorage == null) return true;
@@ -1172,6 +1189,7 @@ public class BetterBaritoneBuild extends Module {
     
         // If there are still items to fetch, schedule pathing to next storage
         if (!itemsToFetch.isEmpty()) {
+            // schedule path to next storage (first in list)
             StorageItem next = itemsToFetch.get(0);
             eventQueue.clear(); // clear stale events and requeue
             pathToLinkedStorage(next.item, next.linkedStorage);
@@ -1179,26 +1197,42 @@ public class BetterBaritoneBuild extends Module {
         }
     
         // If we reached here, fetch finished (no more itemsToFetch)
-        // Resume build automatically unless paused due to Home-if-stuck
+        // Ensure inventory actually has at least one of each required item for resume, otherwise perform final verification.
         if (!buildCommand.isEmpty() && !stuckPaused) {
-            if (debugMode.get()) Logger.info("Fetch complete; attempting to resume build: %s", buildCommand);
+            if (debugMode.get()) Logger.info("Fetch complete; verifying inventory before resuming build: %s", buildCommand);
     
-            // We will try a few attempts with small delays to ensure server/client sync and Baritone receives the command.
-            // Use background thread for sleeping, but execute the actual Baritone command on client main thread.
+            // For safety, wait up to a short total timeout for inventory to reflect items (in case of server lag).
+            final long totalWaitMs = 2000L; // wait up to 2s
+            long start = System.currentTimeMillis();
+            boolean ok = false;
+            while (System.currentTimeMillis() - start < totalWaitMs) {
+                // If no itemsToFetch left and player has at least one item from any fetched types, proceed.
+                // Simpler check: ensure player's inventory contains any one item that was fetched in this run.
+                boolean anyFound = false;
+                for (Item it : grabbedItems) {
+                    if (getPlayerItemCount(it) > 0) { anyFound = true; break; }
+                }
+                if (anyFound) { ok = true; break; }
+                try { Thread.sleep(120); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+            }
+    
+            if (!ok) {
+                if (debugMode.get()) Logger.warn("Inventory verification failed after fetch; items not present yet. Will still attempt resume but may retry.");
+            } else {
+                if (debugMode.get()) Logger.info("Inventory verification passed; player inventory updated.");
+            }
+    
+            final boolean finalOk = ok;
+            // Use background thread to perform retry attempts but execute baritone call on main thread
             MeteorExecutor.execute(() -> {
                 try {
-                    // initial short delay to allow server to sync inventory & close GUI effects
+                    // short initial delay
                     Thread.sleep(150);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
+                } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
     
-                final int maxAttempts = 4;
+                final int maxAttempts = 5;
                 for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-                    if (baritone == null) {
-                        // nothing to do
-                        break;
-                    }
+                    if (baritone == null) break;
     
                     // Execute the baritone command on main thread
                     MinecraftClient.getInstance().execute(() -> {
@@ -1210,24 +1244,33 @@ public class BetterBaritoneBuild extends Module {
                     });
     
                     // Wait a bit for Baritone to start pathing
-                    try { Thread.sleep(250); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                    try { Thread.sleep(300); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
     
-                    // If Baritone has an active path, assume resume succeeded
                     if (baritone != null && baritone.getPathingBehavior().hasPath()) {
                         if (debugMode.get()) Logger.info("Resume successful on attempt %d.", attempt);
-                        break;
+                        return;
                     } else {
                         if (debugMode.get()) Logger.info("Resume attempt %d failed; retrying...", attempt);
                     }
                 }
     
-                // Final check: if still no path and we are not paused, try fallback: send chat command (some servers/clients expect this)
+                // Fallback: if buildCommand does not start with '#' or '/', send it with '#' prefix as chat (Meteor uses '#' commonly)
                 if (baritone != null && !baritone.getPathingBehavior().hasPath() && !stuckPaused) {
                     if (mc.player != null && mc.getNetworkHandler() != null) {
                         String chatCmd = buildCommand.trim();
-                        // If command doesn't start with "/" or "#", send raw chat as fallback
-                        if (!chatCmd.startsWith("/") && !chatCmd.startsWith("#")) {
-                            if (debugMode.get()) Logger.info("Fallback: sending build command as chat: %s", chatCmd);
+                        if (!chatCmd.startsWith("#") && !chatCmd.startsWith("/")) {
+                            String fallback = "#" + chatCmd;
+                            if (debugMode.get()) Logger.info("Fallback: sending build command as chat with '#': %s", fallback);
+                            MinecraftClient.getInstance().execute(() -> {
+                                try {
+                                    mc.getNetworkHandler().sendChatMessage(fallback);
+                                } catch (Exception e) {
+                                    if (debugMode.get()) Logger.warn("Fallback chat send failed: %s", e.getMessage());
+                                }
+                            });
+                        } else {
+                            // if it already had prefix but still no path, send as-is
+                            if (debugMode.get()) Logger.info("Fallback: sending build command as chat (as-is): %s", chatCmd);
                             MinecraftClient.getInstance().execute(() -> {
                                 try {
                                     mc.getNetworkHandler().sendChatMessage(chatCmd);
@@ -1238,10 +1281,23 @@ public class BetterBaritoneBuild extends Module {
                         }
                     }
                 }
-    
             });
         } else if (stuckPaused) {
             Logger.info("Fetch complete but build is paused due to earlier Home-if-stuck event. Re-issue build to continue.");
         }
+    }
+    
+    // Helper: count how many of 'item' player currently has in their inventory
+    private int getPlayerItemCount(Item item) {
+        if (mc.player == null) return 0;
+        int total = 0;
+        try {
+            int size = mc.player.getInventory().size();
+            for (int i = 0; i < size; i++) {
+                ItemStack s = mc.player.getInventory().getStack(i);
+                if (s != null && !s.isEmpty() && s.getItem() == item) total += s.getCount();
+            }
+        } catch (Exception ignored) {}
+        return total;
     }
 }
