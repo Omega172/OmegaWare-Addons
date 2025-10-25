@@ -1223,54 +1223,76 @@ public class BetterBaritoneBuild extends Module {
             }
     
             final boolean finalOk = ok;
-            // Use background thread to perform retry attempts but execute baritone call on main thread
+            // Try resume sequence with stronger Baritone state reset + retries
             MeteorExecutor.execute(() -> {
                 try {
-                    // short initial delay
-                    Thread.sleep(150);
-                } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-    
+                    // longer initial delay to allow server+client inventory sync (150 -> 300 ms)
+                    Thread.sleep(300);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            
                 final int maxAttempts = 5;
-                for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+                boolean resumed = false;
+            
+                for (int attempt = 1; attempt <= maxAttempts && !resumed; attempt++) {
                     if (baritone == null) break;
-    
-                    // Execute the baritone command on main thread
+            
+                    // Cancel Baritone current path/goal to ensure a clean state before issuing build
+                    try {
+                        baritone.getPathingBehavior().cancelEverything();
+                        if (debugMode.get()) Logger.info("Issued cancelEverything() to Baritone before resume attempt %d.", attempt);
+                    } catch (Exception e) {
+                        if (debugMode.get()) Logger.warn("cancelEverything() threw: %s", e.getMessage());
+                    }
+            
+                    // Small pause to let Baritone clear state
+                    try { Thread.sleep(120); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+            
+                    // Debug snapshot: what we will use to resume
+                    if (debugMode.get()) {
+                        Logger.info("Resume attempt %d: buildCommand='%s', itemsToFetchEmpty=%b, stuckPaused=%b", attempt, buildCommand, itemsToFetch.isEmpty(), stuckPaused);
+                    }
+            
+                    // Execute build command on main thread
+                    final int att = attempt;
                     MinecraftClient.getInstance().execute(() -> {
                         try {
-                            if (baritone != null) baritone.getCommandManager().execute(buildCommand);
+                            if (baritone != null) {
+                                baritone.getCommandManager().execute(buildCommand);
+                                if (debugMode.get()) Logger.info("Executed build command on main thread (attempt %d).", att);
+                            }
                         } catch (Exception e) {
-                            if (debugMode.get()) Logger.warn("Exception while executing buildCommand via Baritone: %s", e.getMessage());
+                            if (debugMode.get()) Logger.warn("Exception executing build command: %s", e.getMessage());
                         }
                     });
-    
+            
                     // Wait a bit for Baritone to start pathing
-                    try { Thread.sleep(300); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-    
-                    if (baritone != null && baritone.getPathingBehavior().hasPath()) {
-                        if (debugMode.get()) Logger.info("Resume successful on attempt %d.", attempt);
-                        return;
-                    } else {
-                        if (debugMode.get()) Logger.info("Resume attempt %d failed; retrying...", attempt);
-                    }
-                }
-    
-                // Fallback: if buildCommand does not start with '#' or '/', send it with '#' prefix as chat (Meteor uses '#' commonly)
-                if (baritone != null && !baritone.getPathingBehavior().hasPath() && !stuckPaused) {
-                    if (mc.player != null && mc.getNetworkHandler() != null) {
-                        String chatCmd = buildCommand.trim();
-                        if (!chatCmd.startsWith("#") && !chatCmd.startsWith("/")) {
-                            String fallback = "#" + chatCmd;
-                            if (debugMode.get()) Logger.info("Fallback: sending build command as chat with '#': %s", fallback);
-                            MinecraftClient.getInstance().execute(() -> {
-                                try {
-                                    mc.getNetworkHandler().sendChatMessage(fallback);
-                                } catch (Exception e) {
-                                    if (debugMode.get()) Logger.warn("Fallback chat send failed: %s", e.getMessage());
-                                }
-                            });
+                    try { Thread.sleep(350); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+            
+                    // Check if Baritone began pathing (if yes, consider resume successful)
+                    try {
+                        if (baritone != null && baritone.getPathingBehavior().hasPath()) {
+                            resumed = true;
+                            if (debugMode.get()) Logger.info("Resume successful on attempt %d.", attempt);
+                            break;
                         } else {
-                            // if it already had prefix but still no path, send as-is
-                            if (debugMode.get()) Logger.info("Fallback: sending build command as chat (as-is): %s", chatCmd);
+                            if (debugMode.get()) Logger.info("Resume attempt %d: Baritone has no path yet.", attempt);
+                        }
+                    } catch (Exception e) {
+                        if (debugMode.get()) Logger.warn("Error while checking path status: %s", e.getMessage());
+                    }
+            
+                    // small backoff before next attempt
+                    try { Thread.sleep(250 + attempt * 50); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                }
+            
+                // final fallback: send as chat if still no path (some servers expect chat commands)
+                if (!resumed && !stuckPaused && mc.player != null && mc.getNetworkHandler() != null) {
+                    try {
+                        String chatCmd = buildCommand.trim();
+                        if (!chatCmd.startsWith("/") && !chatCmd.startsWith("#")) {
+                            if (debugMode.get()) Logger.info("Fallback: sending build command as chat message: %s", chatCmd);
                             MinecraftClient.getInstance().execute(() -> {
                                 try {
                                     mc.getNetworkHandler().sendChatMessage(chatCmd);
@@ -1279,6 +1301,8 @@ public class BetterBaritoneBuild extends Module {
                                 }
                             });
                         }
+                    } catch (Exception e) {
+                        if (debugMode.get()) Logger.warn("Fallback chat step failed: %s", e.getMessage());
                     }
                 }
             });
