@@ -183,6 +183,20 @@ public class BetterBaritoneBuild extends Module {
     // if Baritone returned home due to stuck, we pause the build to avoid auto-resume causing overlap
     private boolean stuckPaused = false;
 
+    // Anchor info for build consistency
+    private BlockPos buildAnchorPos = null;
+    private float buildAnchorYaw = 0f;
+    private boolean buildAnchorSet = false;
+    private static final float YAW_TOLERANCE_DEGREES = 8.0f; // yaw tolerance when auto-resuming
+
+    // Timers to reduce debug spam
+    private long lastHomeLogMs = 0L;
+    private static final long HOME_LOG_THROTTLE_MS = 5000L; // 5 sec between "player at home" logs
+
+    // home arrival retries
+    private int homeArrivalRetries = 0;
+    private static final int HOME_ARRIVAL_MAX_RETRIES = 3;
+
     private static class LinkedStorage {
         public BlockPos blockPos;
         List<ItemStack> inventory;
@@ -336,15 +350,6 @@ public class BetterBaritoneBuild extends Module {
     @EventHandler
     private void onTickPost(TickEvent.Post event) {
         if (!isActive() || mc.world == null || mc.player == null || !homeIfStuck.get()) return;
-        if (mc.player.getBlockPos().equals(home)) {
-            if (debugMode.get()) {
-                Logger.info("%sPlayer is at home point.", Formatting.GREEN);
-            }
-            ticksStuck = 0; // Reset the stuck counter if the player is at home
-            lastBlockPos = null; // Reset the last block position
-            return;
-        }
-
         if (home == null) {
             // Yell at the player to set a home point
             Logger.error("Please set a home point using the \"Set Home\" button!");
@@ -367,9 +372,9 @@ public class BetterBaritoneBuild extends Module {
             return;
         }
 
-        if (debugMode.get()) {
-            Logger.warn("Baritone is stuck, ticks: %d", ticksStuck);
-            Logger.info("Should return home: %b", ticksStuck >= homeIfStuckTimeout.get() * 20);
+        // reduced/stabilized logging:
+        if (debugMode.get() && ticksStuck % 20 == 0) { // log roughly once per second while stuck (if debug)
+            Logger.warn("Baritone may be stuck, ticks: %d", ticksStuck);
         }
 
         // 1 second = 20 ticks
@@ -386,26 +391,76 @@ public class BetterBaritoneBuild extends Module {
 
             // Send Baritone home, but DO NOT auto-resume the build to avoid overlap/tumpang-tindih.
             stuckPaused = true;
+            homeArrivalRetries = 0;
             eventQueue.add(new Event(false, () -> {
                 if (baritone != null) baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(home));
             }));
 
-            Logger.info("Build paused due to stuck; re-issue build command manually when ready.");
+            // After giving the path command we schedule a verification event that ensures exact arrival
+            eventQueue.add(new Event(true, this::verifyArrivalAtHome));
+
+            if (debugMode.get()) {
+                Logger.info("Build paused due to stuck; re-issue build command manually when ready.");
+            }
+        } else {
+            // occasionally inform player if they are at home (throttled)
+            if (mc.player.getBlockPos().equals(home)) {
+                long now = System.currentTimeMillis();
+                if (now - lastHomeLogMs > HOME_LOG_THROTTLE_MS) {
+                    lastHomeLogMs = now;
+                    if (debugMode.get()) {
+                        Logger.info("%sPlayer is at home point.", Formatting.GREEN);
+                    }
+                }
+            }
+        }
+    }
+
+    // verifyArrivalAtHome will check if player is precisely at 'home' BlockPos and retry a few times if off by 1 block
+    private void verifyArrivalAtHome() {
+        if (mc.player == null || home == null) return;
+
+        if (mc.player.getBlockPos().equals(home)) {
+            // arrived exactly at home
+            homeArrivalRetries = 0;
+            if (debugMode.get()) Logger.info("Verified arrival at home: X=%d Y=%d Z=%d", home.getX(), home.getY(), home.getZ());
+            return;
+        }
+
+        // if not exactly at home, attempt a few retries to correct path
+        if (homeArrivalRetries < HOME_ARRIVAL_MAX_RETRIES) {
+            homeArrivalRetries++;
+            if (debugMode.get()) Logger.warn("Home arrival off by %s. Retrying path to exact home (attempt %d/%d).", mc.player.getBlockPos().toShortString(), homeArrivalRetries, HOME_ARRIVAL_MAX_RETRIES);
+            if (baritone != null) baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(home));
+            // schedule another verification later
+            eventQueue.add(new Event(true, this::verifyArrivalAtHome));
+        } else {
+            // give up after retries but reset counter
+            if (debugMode.get()) Logger.warn("Failed to perfectly arrive at home after %d retries. Current pos: %s, desired home: %s", HOME_ARRIVAL_MAX_RETRIES, mc.player.getBlockPos().toShortString(), home.toShortString());
+            homeArrivalRetries = 0;
         }
     }
 
     @EventHandler
     private void onMessageReceive(ReceiveMessageEvent event) {
         if (!isActive()) return;
-        String msg = event.getMessage().getString();
-        if (msg == null || msg.isEmpty()) return;
-        msg = msg.toLowerCase().trim();
+        String original = event.getMessage().getString();
+        if (original == null || original.isEmpty()) return;
 
-        if (!msg.contains("[baritone]") || msg.contains("omegaware")) return;
-        int index = msg.indexOf("[baritone]");
+        String msg = original.toLowerCase().trim();
 
-        msg = msg.substring(index+10).trim(); // Remove the "[Baritone]" part
-        // 10x block{minecraft:black_concrete}[axis=x] 86x block{minecraft:red_concrete} 1x block{minecraft:birch_log}[axis=y]
+        if (!msg.contains("[baritone]") || msg.contains("omegaware")) {
+            // also capture build commands from chat even if not baritone message
+            // (some servers print > build ... as chat)
+        } 
+
+        // If message is a meteor/baritone chat containing missing item lines, handle them
+        if (msg.contains("[baritone]")) {
+            int index = msg.indexOf("[baritone]");
+            msg = msg.substring(index+10).trim(); // Remove the "[Baritone]" part
+        }
+
+        // parse baritone missing item message like: "10x block{minecraft:black_concrete}..."
         if (msg.matches("\\d+x block\\{minecraft:[a-z_]+}.*")) {
             String[] parts = msg.split(" ");
 
@@ -470,6 +525,7 @@ public class BetterBaritoneBuild extends Module {
             return;
         }
 
+        // Done building message
         if (msg.contains("done building")) {
             if (debugMode.get()) {
                 Logger.info("Baritone has finished building!");
@@ -492,18 +548,29 @@ public class BetterBaritoneBuild extends Module {
             return;
         }
 
-        msg = msg.substring(2).trim(); // Remove the "> " part
-        if (msg.startsWith("build") || msg.startsWith("litematica")) {
-            buildCommand = msg;
-            // new explicit build command -> clear paused state so it resumes as user asked
-            stuckPaused = false;
-            if (debugMode.get()) {
-                Logger.info("Build command captured: %s%s", Formatting.WHITE, buildCommand);
+        // capture explicit build commands (player typed)
+        // Some servers prefix chat with "> " - so remove if present
+        String trimmed = original.trim();
+        if (trimmed.startsWith("> ")) trimmed = trimmed.substring(2).trim();
+        String trimmedLower = trimmed.toLowerCase();
+
+        if (trimmedLower.startsWith("build") || trimmedLower.startsWith("litematica")) {
+            buildCommand = trimmed; // store the original casing command for execution
+            // capture anchor ONLY when player issues the build command
+            if (mc.player != null) {
+                buildAnchorPos = mc.player.getBlockPos();
+                buildAnchorYaw = mc.player.getYaw();
+                buildAnchorSet = true;
+                if (debugMode.get()) {
+                    Logger.info("Build anchor captured at %s yaw=%.1f. Command: %s", buildAnchorPos.toShortString(), buildAnchorYaw, buildCommand);
+                }
             }
+            // clear paused flag because user explicitly requested build
+            stuckPaused = false;
             return;
         }
 
-        if (msg.startsWith("stop") || msg.startsWith("cancel")) {
+        if (trimmedLower.startsWith("stop") || trimmedLower.startsWith("cancel")) {
             buildCommand = "";
             eventQueue.clear();
             itemsToFetch.clear();
@@ -766,13 +833,7 @@ public class BetterBaritoneBuild extends Module {
 
         if (debugMode.get()) Logger.info("%sNavigating to:%s X=%s, Y=%s, Z=%s", Formatting.GREEN, Formatting.WHITE, blockPos.getX(), blockPos.getY(), blockPos.getZ());
 
-        // Use explicit block Y to avoid accidental Y-shifts caused by player's Y
-        if (!ignoreY.get()) {
-            if (baritone != null) baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(blockPos));
-        } else {
-            BlockPos target = new BlockPos(blockPos.getX(), blockPos.getY(), blockPos.getZ());
-            if (baritone != null) baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(target));
-        }
+        if (baritone != null) baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(blockPos));
     }
 
     private LinkedStorage findItem(Item item) {
@@ -972,6 +1033,19 @@ public class BetterBaritoneBuild extends Module {
         } else if (!buildCommand.isEmpty()) {
             // nothing left to fetch -> resume build only if not paused due to Home-if-stuck
             if (!stuckPaused) {
+                // Before resuming, check anchor consistency if we have anchor stored
+                if (buildAnchorSet && mc.player != null) {
+                    BlockPos nowPos = mc.player.getBlockPos();
+                    float nowYaw = mc.player.getYaw();
+                    boolean posMatches = nowPos.equals(buildAnchorPos);
+                    boolean yawMatches = Math.abs(angleDistanceDegrees(nowYaw, buildAnchorYaw)) <= YAW_TOLERANCE_DEGREES;
+
+                    if (!posMatches || !yawMatches) {
+                        Logger.info("Build resume skipped: current pos/yaw differ from captured anchor. Current=%s yaw=%.1f, Anchor=%s yaw=%.1f. Re-issue build to continue.", nowPos.toShortString(), nowYaw, buildAnchorPos.toShortString(), buildAnchorYaw);
+                        return;
+                    }
+                }
+
                 eventQueue.add(new Event(true, () -> {
                     if (baritone != null) baritone.getCommandManager().execute(buildCommand);
                 }));
@@ -979,5 +1053,14 @@ public class BetterBaritoneBuild extends Module {
                 Logger.info("Build remains paused (home-if-stuck triggered earlier). Re-issue build command to resume.");
             }
         }
+    }
+
+    // helper: compute minimal angle difference in degrees
+    private static float angleDistanceDegrees(float a, float b) {
+        float diff = a - b;
+        diff %= 360.0f;
+        if (diff < -180.0f) diff += 360.0f;
+        if (diff > 180.0f) diff -= 360.0f;
+        return diff;
     }
 }
