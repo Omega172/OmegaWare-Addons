@@ -1071,29 +1071,27 @@ public class BetterBaritoneBuild extends Module {
             if (debugMode.get()) Logger.warn("Interact not accepted (attempt #%d), result=%s", openAttempts, result.toString());
         }
     }
-
+    
     private void moveSlots(StorageItem storageItem, ScreenHandler handler) {
         if (mc.player == null) return;
-
         if (storageItem == null) return;
-
+    
         boolean initial = true;
         int count = 0;
-
         List<Item> grabbedItems = new ArrayList<>();
-
+    
         // If handler is null (no screen), nothing to move
         if (handler == null) {
             if (debugMode.get()) Logger.warn("moveSlots: no open screen handler to move items from.");
             // give up on this attempt - allow next attempt later
             return;
         }
-
+    
         int maxIndex = Math.min(SlotUtils.MAIN_END, handler.slots.size());
-
+    
         for (int i = 0; i < maxIndex; i++) {
             if (!handler.getSlot(i).hasStack()) continue;
-
+    
             int sleep;
             if (initial) {
                 sleep = 50;
@@ -1105,23 +1103,21 @@ public class BetterBaritoneBuild extends Module {
                 Thread.currentThread().interrupt();
                 OmegawareAddons.LOG.error("Interrupted while sleeping in moveSlots: {}", e.getMessage());
             }
-
+    
             // Exit if user closes screen or exit world
             if (mc.currentScreen == null || !Utils.canUpdate()) break;
-
+    
             Item item = handler.getSlot(i).getStack().getItem();
             if (item != storageItem.item) continue;
-
+    
             grabbedItems.add(item);
-
+    
             // Update linked storage inventory safely: find matching linkedStorage object and update
             LinkedStorage linkedStorage = storageItem.linkedStorage;
             if (linkedStorage != null) {
-                // replace the linked storage entry safely
                 for (int si = 0; si < linkedStorages.size(); si++) {
                     LinkedStorage ls = linkedStorages.get(si);
                     if (ls.blockPos.equals(linkedStorage.blockPos)) {
-                        // remove the exact stack from the stored inventory by matching item
                         ItemStack stackInSlot = handler.getSlot(i).getStack();
                         linkedStorages.get(si).inventory.removeIf(itemStack -> itemStack.getItem() == stackInSlot.getItem());
                         break;
@@ -1129,24 +1125,23 @@ public class BetterBaritoneBuild extends Module {
                 }
                 saveLinkedStorages();
             }
-
+    
             count++;
             // perform shift-click to move item to player inventory
             InvUtils.shiftClick().slotId(i);
-
+    
             // small delay after shift-click to let server sync
             try { Thread.sleep(AFTER_SHIFTCLICK_DELAY_MS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-
+    
             if (count >= storageItem.stacks) {
                 break;
             }
         }
-
+    
         // Update the single storageItem's remaining stacks
         int remaining = Math.max(0, storageItem.stacks - count);
-
-        // Remove the processed item from itemsToFetch (we always remove the instance we processed)
-        // Use removeIf to be safe matching by item + linkedStorage position
+    
+        // Remove the processed item from itemsToFetch
         itemsToFetch.removeIf(si -> {
             if (si.item == storageItem.item) {
                 if (si.linkedStorage == null && storageItem.linkedStorage == null) return true;
@@ -1155,13 +1150,13 @@ public class BetterBaritoneBuild extends Module {
             }
             return false;
         });
-
+    
         if (remaining > 0) {
             // re-add with updated remaining stacks
             StorageItem newItem = new StorageItem(storageItem.item, remaining, storageItem.linkedStorage);
             itemsToFetch.add(0, newItem); // push front to retry ASAP
         }
-
+    
         // close the screen on the client thread so player regains control automatically
         if (mc != null) {
             MinecraftClient.getInstance().execute(() -> {
@@ -1170,29 +1165,83 @@ public class BetterBaritoneBuild extends Module {
                 } catch (Exception ignored) { /* ignore errors while trying to close */ }
             });
         }
-
+    
         // clear automated-interact marker now that we've finished handling the screen
         lastAutomatedInteractPos = null;
         lastAutomatedInteractMs = 0L;
-
+    
         // If there are still items to fetch, schedule pathing to next storage
         if (!itemsToFetch.isEmpty()) {
-            // schedule path to next storage (first in list)
             StorageItem next = itemsToFetch.get(0);
             eventQueue.clear(); // clear stale events and requeue
             pathToLinkedStorage(next.item, next.linkedStorage);
             return;
         }
-
+    
         // If we reached here, fetch finished (no more itemsToFetch)
         // Resume build automatically unless paused due to Home-if-stuck
         if (!buildCommand.isEmpty() && !stuckPaused) {
-            if (debugMode.get()) Logger.info("Fetch complete; resuming build: %s", buildCommand);
-            eventQueue.add(new Event(true, () -> {
-                if (baritone != null) baritone.getCommandManager().execute(buildCommand);
-            }));
+            if (debugMode.get()) Logger.info("Fetch complete; attempting to resume build: %s", buildCommand);
+    
+            // We will try a few attempts with small delays to ensure server/client sync and Baritone receives the command.
+            // Use background thread for sleeping, but execute the actual Baritone command on client main thread.
+            MeteorExecutor.execute(() -> {
+                try {
+                    // initial short delay to allow server to sync inventory & close GUI effects
+                    Thread.sleep(150);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+    
+                final int maxAttempts = 4;
+                for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+                    if (baritone == null) {
+                        // nothing to do
+                        break;
+                    }
+    
+                    // Execute the baritone command on main thread
+                    MinecraftClient.getInstance().execute(() -> {
+                        try {
+                            if (baritone != null) baritone.getCommandManager().execute(buildCommand);
+                        } catch (Exception e) {
+                            if (debugMode.get()) Logger.warn("Exception while executing buildCommand via Baritone: %s", e.getMessage());
+                        }
+                    });
+    
+                    // Wait a bit for Baritone to start pathing
+                    try { Thread.sleep(250); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+    
+                    // If Baritone has an active path, assume resume succeeded
+                    if (baritone != null && baritone.getPathingBehavior().hasPath()) {
+                        if (debugMode.get()) Logger.info("Resume successful on attempt %d.", attempt);
+                        break;
+                    } else {
+                        if (debugMode.get()) Logger.info("Resume attempt %d failed; retrying...", attempt);
+                    }
+                }
+    
+                // Final check: if still no path and we are not paused, try fallback: send chat command (some servers/clients expect this)
+                if (baritone != null && !baritone.getPathingBehavior().hasPath() && !stuckPaused) {
+                    if (mc.player != null && mc.getNetworkHandler() != null) {
+                        String chatCmd = buildCommand.trim();
+                        // If command doesn't start with "/" or "#", send raw chat as fallback
+                        if (!chatCmd.startsWith("/") && !chatCmd.startsWith("#")) {
+                            if (debugMode.get()) Logger.info("Fallback: sending build command as chat: %s", chatCmd);
+                            MinecraftClient.getInstance().execute(() -> {
+                                try {
+                                    mc.getNetworkHandler().sendChatMessage(chatCmd);
+                                } catch (Exception e) {
+                                    if (debugMode.get()) Logger.warn("Fallback chat send failed: %s", e.getMessage());
+                                }
+                            });
+                        }
+                    }
+                }
+    
+            });
         } else if (stuckPaused) {
-            Logger.info("Fetch complete but build is paused due to previous Home-if-stuck event. Re-issue build to continue.");
+            Logger.info("Fetch complete but build is paused due to earlier Home-if-stuck event. Re-issue build to continue.");
         }
     }
 }
