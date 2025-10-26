@@ -1,4 +1,3 @@
-// (FULL FILE START)
 package xyz.omegaware.addon.modules;
 
 import baritone.api.BaritoneAPI;
@@ -177,12 +176,21 @@ public class BetterBaritoneBuild extends Module {
     // small delay after shift-click to let server sync (ms)
     private final long AFTER_SHIFTCLICK_DELAY_MS = 80L;
 
-    // track automated interaction origin so we don't treat automated opens as manual 'link' actions
+    // automated open marker (to avoid treating automated opens as manual linking)
     private BlockPos lastAutomatedInteractPos = null;
     private long lastAutomatedInteractMs = 0L;
 
-    // if Baritone returned home due to stuck, we pause the build to avoid auto-resume causing overlap
+    // anchor capture for build: saved when initial build command is captured
+    private BlockPos buildAnchorPos = null;
+    private float buildAnchorYaw = 0f;
+
+    // pause state when Baritone returned home due to stuck
     private boolean stuckPaused = false;
+
+    // logging throttle
+    private long lastHomeLogMs = 0L;
+    private long lastStuckLogMs = 0L;
+    private boolean lastWasAtHome = false;
 
     private static class LinkedStorage {
         public BlockPos blockPos;
@@ -225,6 +233,8 @@ public class BetterBaritoneBuild extends Module {
     private final List<StorageItem> itemsToFetch = new ArrayList<>();
 
     private String buildCommand = "";
+
+    public static final long LOG_THROTTLE_MS = 5000L; // 5 sec throttle for repetitive logs
 
     @Override
     public void onActivate() {
@@ -338,12 +348,20 @@ public class BetterBaritoneBuild extends Module {
     private void onTickPost(TickEvent.Post event) {
         if (!isActive() || mc.world == null || mc.player == null || !homeIfStuck.get()) return;
         if (mc.player.getBlockPos().equals(home)) {
+            // throttle repeated "player is at home" logs
             if (debugMode.get()) {
-                Logger.info("%sPlayer is at home point.", Formatting.GREEN);
+                long now = System.currentTimeMillis();
+                if (!lastWasAtHome || now - lastHomeLogMs > LOG_THROTTLE_MS) {
+                    Logger.info("%sPlayer is at home point.", Formatting.GREEN);
+                    lastHomeLogMs = now;
+                }
             }
+            lastWasAtHome = true;
             ticksStuck = 0; // Reset the stuck counter if the player is at home
             lastBlockPos = null; // Reset the last block position
             return;
+        } else {
+            lastWasAtHome = false;
         }
 
         if (home == null) {
@@ -369,8 +387,11 @@ public class BetterBaritoneBuild extends Module {
         }
 
         if (debugMode.get()) {
-            Logger.warn("Baritone is stuck, ticks: %d", ticksStuck);
-            Logger.info("Should return home: %b", ticksStuck >= homeIfStuckTimeout.get() * 20);
+            long now = System.currentTimeMillis();
+            if (now - lastStuckLogMs > LOG_THROTTLE_MS) {
+                Logger.warn("Baritone is stuck, ticks: %d", ticksStuck);
+                lastStuckLogMs = now;
+            }
         }
 
         // 1 second = 20 ticks
@@ -385,13 +406,32 @@ public class BetterBaritoneBuild extends Module {
 
             if (baritone != null) baritone.getPathingBehavior().cancelEverything();
 
-            // Send Baritone home, but DO NOT auto-resume the build to avoid overlap/tumpang-tindih.
+            // mark paused to avoid auto-resume (user must reissue build or we check anchor conditions)
             stuckPaused = true;
-            eventQueue.add(new Event(false, () -> {
-                if (baritone != null) baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(home));
-            }));
+
+            // send Baritone home, but we'll verify and retry a few times after arrival to try to reach exact block
+            int attempts = 3;
+            for (int i = 0; i < attempts; i++) {
+                final int attempt = i;
+                eventQueue.add(new Event(false, () -> {
+                    if (baritone != null) baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(home));
+                    // schedule a verification after a short delay via next events
+                    eventQueue.add(new Event(true, () -> verifyArrivedAtHome(attempt)));
+                }));
+            }
 
             Logger.info("Build paused due to stuck; re-issue build command manually when ready.");
+        }
+    }
+
+    private void verifyArrivedAtHome(int attempt) {
+        if (mc.player == null || home == null) return;
+        if (mc.player.getBlockPos().equals(home)) {
+            if (debugMode.get()) Logger.info("Verified player at exact home position on attempt %d", attempt);
+        } else {
+            if (debugMode.get()) Logger.warn("Player not exactly at home after attempt %d. Current=%s, Home=%s", attempt, mc.player.getBlockPos(), home);
+            // Try again: small re-path (we queued multiple attempts earlier)
+            if (baritone != null) baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(home));
         }
     }
 
@@ -463,8 +503,7 @@ public class BetterBaritoneBuild extends Module {
 
             itemsToFetch.add(new StorageItem(item, stacks + extraStacks.get(), linkedStorage));
 
-            // If user previously was stuckPaused, clear the pause if they explicitly triggered a build flow
-            // (We assume a new fetch request indicates intent to continue)
+            // If user previously was stuckPaused, a new fetch request implies they want to continue -> clear pause
             stuckPaused = false;
 
             pathToLinkedStorage(item, linkedStorage);
@@ -496,10 +535,19 @@ public class BetterBaritoneBuild extends Module {
         msg = msg.substring(2).trim(); // Remove the "> " part
         if (msg.startsWith("build") || msg.startsWith("litematica")) {
             buildCommand = msg;
-            // new explicit build command -> clear paused state so it resumes as user asked
+            // capture the player's anchor position and yaw at the time the build command is issued
+            if (mc.player != null) {
+                buildAnchorPos = mc.player.getBlockPos();
+                buildAnchorYaw = mc.player.getYaw();
+            } else {
+                buildAnchorPos = null;
+            }
+            // clear paused state because explicit build command means user wants to (re)start
             stuckPaused = false;
+
             if (debugMode.get()) {
                 Logger.info("Build command captured: %s%s", Formatting.WHITE, buildCommand);
+                if (buildAnchorPos != null) Logger.info("Captured build anchor at %s yaw=%.1f", buildAnchorPos, buildAnchorYaw);
             }
             return;
         }
@@ -524,7 +572,7 @@ public class BetterBaritoneBuild extends Module {
 
         // Manual player interaction sets lastBlockInteractPos and clears automated marker.
         lastBlockInteractPos = event.result.getBlockPos();
-        lastAutomatedInteractPos = null; // any manual interaction cancels automated marker
+        lastAutomatedInteractPos = null; // manual cancels automated marker
     }
 
     @EventHandler
@@ -551,7 +599,7 @@ public class BetterBaritoneBuild extends Module {
         }
 
         // 2) Handle linking storages when user has just interacted
-        // We only update linked storage **if the open was manual by the player** (not automated by the module)
+        // Only treat as manual link/update if last open wasn't an automated module open recently
         if (mc.currentScreen == null) return; // no open screen => nothing to index
 
         if (lastBlockInteractPos == null) return;
@@ -971,15 +1019,54 @@ public class BetterBaritoneBuild extends Module {
             eventQueue.clear(); // clear stale events and requeue
             pathToLinkedStorage(next.item, next.linkedStorage);
         } else if (!buildCommand.isEmpty()) {
-            // nothing left to fetch -> resume build only if not paused due to Home-if-stuck
-            if (!stuckPaused) {
+            // nothing left to fetch -> resume build only if not paused due to Home-if-stuck and anchor conditions are OK
+            if (!stuckPaused && isAnchorStableForResume()) {
+                // small stabilization delay: ensure player hasn't moved for a few ticks
                 eventQueue.add(new Event(true, () -> {
-                    if (baritone != null) baritone.getCommandManager().execute(buildCommand);
+                    // double-check again just before executing build
+                    if (isAnchorStableForResume()) {
+                        if (baritone != null) baritone.getCommandManager().execute(buildCommand);
+                    } else {
+                        Logger.info("Anchor not stable at resume time; not resuming build automatically.");
+                    }
                 }));
             } else {
-                Logger.info("Build remains paused (home-if-stuck triggered earlier). Re-issue build command to resume.");
+                if (stuckPaused) {
+                    Logger.info("Build remains paused (home-if-stuck triggered earlier). Re-issue build command to resume.");
+                } else {
+                    Logger.info("Build not resumed automatically because anchor conditions are not met.");
+                }
             }
         }
     }
+
+    /**
+     * Check if the captured anchor (when #build was first issued) is still valid for automatic resume.
+     * Conditions:
+     *  - buildAnchorPos must be captured
+     *  - player must be standing on same blockPos
+     *  - player's yaw must be within tolerance of captured yaw (to avoid orientation mismatches)
+     */
+    private boolean isAnchorStableForResume() {
+        if (buildAnchorPos == null || mc.player == null) return false;
+
+        BlockPos now = mc.player.getBlockPos();
+        if (!now.equals(buildAnchorPos)) return false;
+
+        // small yaw tolerance (degrees)
+        float nowYaw = mc.player.getYaw();
+        float yawDiff = Math.abs(normalizeAngle(nowYaw - buildAnchorYaw));
+        if (yawDiff > 8.0f) return false;
+
+        // also ensure player not moving (simple check)
+        return lastBlockPos == null || lastBlockPos.equals(now);
+    }
+
+    // normalize angle to [-180,180]
+    private float normalizeAngle(float angle) {
+        angle %= 360f;
+        if (angle >= 180f) angle -= 360f;
+        if (angle < -180f) angle += 360f;
+        return angle;
+    }
 }
-// (FULL FILE END)
