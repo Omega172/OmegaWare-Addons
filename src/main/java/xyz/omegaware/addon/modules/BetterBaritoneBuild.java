@@ -149,9 +149,9 @@ public class BetterBaritoneBuild extends Module {
     private final java.util.LinkedList<Event> eventQueue = new java.util.LinkedList<>();
 
 
-    // (MODIFIED) All settings are now initialized in the constructor
-    public BetterBaritoneBuild() {
-        super(OmegawareAddons.CATEGORY, "better-baritone-build", "Enable this module to enhance Baritone's building capabilities with linked storage and item fetching features.");
+    private String buildCommand = "";
+    private BlockPos home = null;
+    private int ticksStuck = 0;
 
         // --- Initialize all Settings Groups and Settings *inside* the constructor ---
         sgGeneral = this.settings.getDefaultGroup();
@@ -1310,4 +1310,5 @@ public class BetterBaritoneBuild extends Module {
         return total;
     }
 }
+
 
