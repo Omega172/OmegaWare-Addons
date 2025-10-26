@@ -59,7 +59,7 @@ public class BetterBaritoneBuild extends Module {
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
-    // --- (FIX) Define all Settings Groups and Settings as uninitialized fields ---
+    // --- Settings Groups ---
     private final SettingGroup sgGeneral;
     private final SettingGroup sgRender;
     private final SettingGroup sgSafety;
@@ -92,58 +92,53 @@ public class BetterBaritoneBuild extends Module {
     // Deprecated, unused setting
     private final Setting<Boolean> ignoreY;
 
-
+    // --- Baritone ---
     IBaritone baritone = null;
 
-    // --- Concurrency / safety flags ---
+    // --- Concurrency & Interaction Flags ---
     private long lastInteractMs = 0L;
     private int openAttempts = 0;
     private final long INTERACT_DEBOUNCE_MS = 800L;
     private final int MAX_OPEN_ATTEMPTS = 6;
-
-    // automated open tracking
     private BlockPos lastAutomatedInteractPos = null;
     private long lastAutomatedInteractMs = 0L;
-    private BlockPos lastBlockInteractPos = null; // last pos *player* interacted with
+    private BlockPos lastBlockInteractPos = null; // last pos *player* manually interacted with
 
-    // if Baritone returned home due to stuck/no items, we pause the build
-    private boolean stuckPaused = false;
+    // --- (v8) State Machine Flags ---
+    private boolean buildIsActive = false; // TRUE if a #build command is running
+    private boolean stuckPaused = false;   // TRUE if anchor fails, or stuck timer hits, or *unexpected* pause
     
-    // --- (NEW) Double-Check State ---
+    // --- (v8) Double-Check State ---
     private final List<Item> itemsToDoubleCheck = new ArrayList<>();
     private boolean isDoubleCheckQueued = false; // Flag to prevent queueing it multiple times
     
-    // Anchor info for build consistency
+    // --- Anchor & Home ---
     private BlockPos buildAnchorPos = null;
     private float buildAnchorYaw = 0f;
+    private BlockPos home = null;
     
-    // Timers
+    // --- Timers ---
     private long lastHomeLogMs = 0L;
     private static final long HOME_LOG_THROTTLE_MS = 5000L;
-
-    // home arrival retries
     private int homeArrivalRetries = 0;
     private static final int HOME_ARRIVAL_MAX_RETRIES = 3;
+    private int ticksStuck = 0;
+    private BlockPos lastBlockPos = null;
 
+    // --- Linked Storage ---
     private static class LinkedStorage {
         public BlockPos blockPos;
         List<ItemStack> inventory;
-        public LinkedStorage() {
-            this.blockPos = BlockPos.ORIGIN;
-            this.inventory = new ArrayList<>();
-        }
-        public LinkedStorage(BlockPos blockPos, List<ItemStack> inventory) {
-            this.blockPos = blockPos;
-            this.inventory = inventory;
-        }
+        public LinkedStorage() { this.blockPos = BlockPos.ORIGIN; this.inventory = new ArrayList<>(); }
+        public LinkedStorage(BlockPos blockPos, List<ItemStack> inventory) { this.blockPos = blockPos; this.inventory = inventory; }
     }
     private final List<LinkedStorage> linkedStorages = new ArrayList<>();
 
-    // --- (MODIFIED) Event Queue is now the *only* state machine ---
+    // --- (v8) Event Queue (The new "Brain") ---
     private static class Event {
-        public boolean bWaitOnPath;
-        public Runnable callback;
-        public String description; // For debugging
+        public boolean bWaitOnPath; // Does this event wait for Baritone to stop pathing?
+        public Runnable callback;   // The code to run
+        public String description;  // For debugging
 
         public Event(boolean bWaitOnPath, Runnable callback, String description) {
             this.bWaitOnPath = bWaitOnPath;
@@ -152,13 +147,6 @@ public class BetterBaritoneBuild extends Module {
         }
     }
     private final java.util.LinkedList<Event> eventQueue = new java.util.LinkedList<>();
-
-    // We no longer need itemsToFetch or pendingChecks, the queue handles it.
-
-    private String buildCommand = "";
-    private BlockPos home = null;
-    private int ticksStuck = 0;
-    private BlockPos lastBlockPos = null;
 
 
     // (MODIFIED) All settings are now initialized in the constructor
@@ -207,7 +195,6 @@ public class BetterBaritoneBuild extends Module {
             .defaultValue(false)
             .build()
         );
-
 
         // --- Safety & Resume Settings ---
         homeIfStuck = sgSafety.add(new BoolSetting.Builder()
@@ -347,15 +334,12 @@ public class BetterBaritoneBuild extends Module {
             toggle();
             return;
         }
-
         baritone = BaritoneAPI.getProvider().getBaritoneForMinecraft(MinecraftClient.getInstance());
-
-        // Reset all states
-        forceStopAndGoHome(false); // Clear everything without going home
+        forceStopAndGoHome(false); // Clear everything
+        buildIsActive = false;
+        stuckPaused = false;
         buildCommand = "";
         buildAnchorPos = null;
-        stuckPaused = false;
-        
         loadLinkedStorages();
         loadHome();
     }
@@ -366,6 +350,7 @@ public class BetterBaritoneBuild extends Module {
         itemsToDoubleCheck.clear();
         isDoubleCheckQueued = false;
         if (baritone != null) baritone.getPathingBehavior().cancelEverything();
+        // Note: Does NOT reset buildIsActive or stuckPaused
     }
 
     @EventHandler
@@ -376,14 +361,12 @@ public class BetterBaritoneBuild extends Module {
             for (LinkedStorage linkedStorage : linkedStorages) {
                 if (linkedStorage == null || linkedStorage.blockPos == null || !mc.world.isPosLoaded(linkedStorage.blockPos))
                     continue;
-
                 event.renderer.box(linkedStorage.blockPos, sideColor.get(), lineColor.get(), shapeMode.get(), 0);
             }
         } else {
             for (BlockEntity blockEntity : Utils.blockEntities()) {
                 if (!(blockEntity instanceof ShulkerBoxBlockEntity || blockEntity instanceof ChestBlockEntity || blockEntity instanceof BarrelBlockEntity || blockEntity instanceof EnderChestBlockEntity))
                     continue;
-
                 BlockPos pos = blockEntity.getPos();
                 if (mc.world.isPosLoaded(pos)) {
                     boolean isLinked = linkedStorages.stream().anyMatch(storage -> storage.blockPos.equals(pos));
@@ -404,7 +387,6 @@ public class BetterBaritoneBuild extends Module {
         printBtn.action = () -> {
             StringBuilder sb = new StringBuilder();
             linkedStorages.forEach(linkedStorage -> sb.append(String.format("X=%s, Y=%s, Z=%s\n", linkedStorage.blockPos.getX(), linkedStorage.blockPos.getY(), linkedStorage.blockPos.getZ())));
-
             Logger.info("Linked Storages:\n%s", sb.toString());
         };
         hList.add(printBtn);
@@ -420,13 +402,10 @@ public class BetterBaritoneBuild extends Module {
         WButton setHomeBtn = theme.button("Set Home");
         setHomeBtn.action = () -> {
             if (mc.player == null || mc.world == null) return;
-
             home = mc.player.getBlockPos();
             ticksStuck = 0;
             lastBlockPos = null;
-
             saveHome();
-
             Logger.info("%sHome point set to:%s X=%s, Y=%s, Z=%s", Formatting.GREEN, Formatting.WHITE, home.getX(), home.getY(), home.getZ());
         };
         hList.add(setHomeBtn);
@@ -436,7 +415,7 @@ public class BetterBaritoneBuild extends Module {
 
     @EventHandler
     private void onTickPre(TickEvent.Pre event) {
-        // (REFACTORED) This is the new "dumb" event queue processor
+        // (v8) This is the "dumb" event queue processor. It just runs the queue.
         if (!isActive() || eventQueue.isEmpty()) return;
         
         Event queuedEvent = eventQueue.getFirst();
@@ -447,12 +426,10 @@ public class BetterBaritoneBuild extends Module {
         }
 
         if (debugMode.get()) {
-            // Log event execution
             if (queuedEvent.description.contains("Wait")) {
-                // Throttled logging for repetitive tasks
-                if(ticksStuck % 20 == 0) Logger.info("Queue: %d remaining. Executing: %s", eventQueue.size(), queuedEvent.description);
+                if(ticksStuck % 20 == 0) Logger.info("Queue: %d left. Exec: %s", eventQueue.size(), queuedEvent.description);
             } else {
-                Logger.info("Queue: %d remaining. Executing: %s", eventQueue.size(), queuedEvent.description);
+                Logger.info("Queue: %d left. Exec: %s", eventQueue.size(), queuedEvent.description);
             }
             ticksStuck = 0; // Reset stuck counter if queue is active
         }
@@ -474,15 +451,16 @@ public class BetterBaritoneBuild extends Module {
 
     @EventHandler
     private void onTickPost(TickEvent.Post event) {
+        // (v8) This handler is *only* for the stuck timer
         if (!isActive() || mc.world == null || mc.player == null) return;
         
-        // --- (FIXED) Stuck Logic ---
-        // Only run stuck logic if:
-        // 1. We have a home
-        // 2. We are NOT paused
-        // 3. We have an active build command
-        // 4. The event queue is EMPTY (meaning we are not fetching/checking)
-        if (homeIfStuck.get() && home != null && !stuckPaused && !buildCommand.isEmpty() && eventQueue.isEmpty()) {
+        // Stuck Logic: Only runs if all these are true:
+        // 1. Setting is on
+        // 2. Home is set
+        // 3. A build is active
+        // 4. We are NOT paused by anchor/error
+        // 5. The event queue is EMPTY (we are not fetching/checking)
+        if (homeIfStuck.get() && home != null && buildIsActive && !stuckPaused && eventQueue.isEmpty()) {
             
             if (lastBlockPos == null) {
                 lastBlockPos = mc.player.getBlockPos();
@@ -499,13 +477,14 @@ public class BetterBaritoneBuild extends Module {
                 Logger.warn("Baritone may be stuck (in build mode), ticks: %d", ticksStuck);
             }
 
+            // Timeout reached
             if (ticksStuck >= homeIfStuckTimeout.get() * 20) {
                 Logger.error("Baritone is stuck, returning to home point...");
                 ticksStuck = 0;
                 lastBlockPos = mc.player.getBlockPos();
                 forceStopAndGoHome(true); // Go home AND set stuckPaused = true
             }
-        } else if (eventQueue.isEmpty() && !stuckPaused && buildCommand.isEmpty() && mc.player.getBlockPos().equals(home)) {
+        } else if (eventQueue.isEmpty() && !buildIsActive && home != null && mc.player.getBlockPos().equals(home)) {
             // Idle at home log
             long now = System.currentTimeMillis();
             if (now - lastHomeLogMs > HOME_LOG_THROTTLE_MS) {
@@ -526,22 +505,17 @@ public class BetterBaritoneBuild extends Module {
         if (mc.player == null || home == null) return;
         
         if (mc.player.getBlockPos().equals(home)) {
-            // arrived exactly at home
             homeArrivalRetries = 0;
             if (debugMode.get()) Logger.info("Verified arrival at home: X=%d Y=%d Z=%d", home.getX(), home.getY(), home.getZ());
-            // (MODIFIED) Don't set state flag, just stop queuing
-            return;
+            return; // Stop queueing
         }
 
-        // if not exactly at home, attempt a few retries to correct path
         if (homeArrivalRetries < HOME_ARRIVAL_MAX_RETRIES) {
             homeArrivalRetries++;
             if (debugMode.get()) Logger.warn("Home arrival off by %s. Retrying path to exact home (attempt %d/%d).", mc.player.getBlockPos().toShortString(), homeArrivalRetries, HOME_ARRIVAL_MAX_RETRIES);
             if (baritone != null) baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(home));
-            // schedule another verification later
             eventQueue.add(new Event(true, this::verifyArrivalAtHome, "Verify Home Arrival"));
         } else {
-            // give up after retries but reset counter
             if (debugMode.get()) Logger.warn("Failed to perfectly arrive at home after %d retries. Current pos: %s, desired home: %s", HOME_ARRIVAL_MAX_RETRIES, mc.player.getBlockPos().toShortString(), home.toShortString());
             homeArrivalRetries = 0;
         }
@@ -577,37 +551,58 @@ public class BetterBaritoneBuild extends Module {
         
         // --- 1. Handle Build Command ---
         if (commandPrefix != null && (trimmedLower.startsWith("build") || trimmedLower.startsWith("litematica"))) {
-            // Store the command *without* the prefix
             buildCommand = trimmed; 
 
-            // capture anchor when player issues build
             if (mc.player != null) {
                 buildAnchorPos = mc.player.getBlockPos();
                 buildAnchorYaw = mc.player.getYaw();
                 if (debugMode.get()) Logger.info("Build anchor captured at %s yaw=%.1f. Command: %s", buildAnchorPos.toShortString(), buildAnchorYaw, buildCommand);
             }
             
-            // (REFACTORED) Reset *everything* and queue the *first* event
+            // (v8) This is a new job. Reset everything.
             resetAllTasks();
+            buildIsActive = true;
             stuckPaused = false;
-            ticksStuck = 0; // Reset stuck counter on new command
+            ticksStuck = 0;
             lastBlockPos = (mc.player != null) ? mc.player.getBlockPos() : null;
             
-            // (NEW) Queue the initial command execution
-            eventQueue.add(new Event(false, this::executeBuildCommand, "Initial Build Command"));
+            // Queue the initial command execution
+            eventQueue.add(new Event(false, this::executeInitialBuildCommand, "Initial Build Command"));
             
             if (debugMode.get()) Logger.info("Build command received. Queued initial command execution.");
-            return; // Command processed
+            return;
+        }
+        
+        // --- (v8 NEW) Handle Resume Command ---
+        if (commandPrefix != null && trimmedLower.equals("resume")) {
+            if (!buildIsActive) {
+                 if (debugMode.get()) Logger.info("Ignoring #resume, no build is active.");
+                 return;
+            }
+            if (!stuckPaused) {
+                if (debugMode.get()) Logger.info("Ignoring #resume, build is not paused.");
+                return;
+            }
+            
+            Logger.info("Manual #resume received. Clearing pause state and queueing resume logic.");
+            stuckPaused = false;
+            ticksStuck = 0;
+            lastBlockPos = (mc.player != null) ? mc.player.getBlockPos() : null;
+            
+            // Queue the resume logic. This will re-run the build command.
+            eventQueue.add(new Event(false, this::executeResumeLogic, "Manual Resume"));
+            return;
         }
 
         // --- 2. Handle Stop/Cancel Command ---
         if (commandPrefix != null && (trimmedLower.equals("stop") || trimmedLower.equals("cancel"))) {
+            buildIsActive = false;
+            stuckPaused = false;
             buildCommand = "";
             buildAnchorPos = null;
-            stuckPaused = false;
             resetAllTasks(); // Clear everything
             Logger.info("Stop/Cancel received. All tasks cleared.");
-            return; // Command processed
+            return;
         }
         
         // --- 3. Handle Baritone-Sent Messages ---
@@ -615,37 +610,31 @@ public class BetterBaritoneBuild extends Module {
 
         // --- 3a. Handle Missing Items ---
         if (baritoneMsg.matches("\\d+x block\\{minecraft:[a-z_]+}.*")) {
-            if (stuckPaused) return; // Don't queue tasks if we are paused
+            // (v8) Only process if a build is active. *DO NOT* check stuckPaused.
+            if (!buildIsActive) return; 
 
             String[] parts = baritoneMsg.split(" ");
-
             String blockCount = parts[0].replace("x", "").trim();
             int count = Integer.parseInt(blockCount);
             int stacks = (int) Math.ceil(count / 64.0);
-
             String blockMessage = parts[1];
             String blockName = blockMessage.substring(blockMessage.indexOf(':') + 1);
-
             int endIndex = blockName.indexOf('}');
-            if (endIndex != -1) {
-                blockName = blockName.substring(0, endIndex);
-            }
+            if (endIndex != -1) blockName = blockName.substring(0, endIndex);
 
             Identifier identifier = Identifier.of(blockName);
             Item item = Registries.ITEM.get(identifier).asItem();
-
             if (item == null) {
                 if (debugMode.get()) Logger.error("Item not found: %s%s", Formatting.WHITE, blockName);
                 return;
             }
 
-            // If player already has the item in inventory, don't mark as missing
             if (playerHasItem(item)) {
                 if (debugMode.get()) Logger.info("Item %s present in player inventory; skipping fetch.", item.getName().getString());
                 return;
             }
             
-            // (NEW) Check if this item is *already* in the queue
+            // Check if this item is *already* in the queue or double-check list
             String itemDesc = "Fetch " + item.getName().getString();
             String checkDesc = "DoubleCheck " + item.getName().getString();
             for (Event e : eventQueue) {
@@ -654,18 +643,16 @@ public class BetterBaritoneBuild extends Module {
                     return;
                 }
             }
-            // Also check items pending double-check
             if (itemsToDoubleCheck.contains(item)) {
                  if (debugMode.get()) Logger.info("Task for %s is already in double-check list.", item.getName().getString());
                  return;
             }
 
+            // Not found in queue, find in storage
             LinkedStorage linkedStorage = findItem(item);
             if (linkedStorage == null) {
-                // (MODIFIED) Queue a double-check task
                 queueDoubleCheckTask(item, stacks + extraStacks.get());
             } else {
-                // (MODIFIED) Queue a fetch task
                 queueFetchTask(item, stacks + extraStacks.get(), linkedStorage);
             }
             return;
@@ -673,11 +660,8 @@ public class BetterBaritoneBuild extends Module {
 
         // --- 3b. Handle "Done Building" ---
         if (baritoneMsg.contains("done building")) {
-            if (debugMode.get()) {
-                Logger.info("Baritone has finished building!");
-            }
-            
-            // Clear job
+            if (debugMode.get()) Logger.info("Baritone has finished building!");
+            buildIsActive = false;
             buildCommand = "";
             buildAnchorPos = null;
             resetAllTasks(); // Clear queues
@@ -693,9 +677,20 @@ public class BetterBaritoneBuild extends Module {
             return;
         }
         
-        // --- 3c. Handle Baritone's Own Pause ---
+        // --- 3c. (v8) Handle Baritone's Own Pause ---
         if (baritoneMsg.contains("unable to do it. pausing.")) {
-            if (debugMode.get()) Logger.warn("Baritone has paused. Setting stuckPaused=true. User must manually resume.");
+            if (!buildIsActive) return; // Not our build
+            
+            // (v8) CRITICAL: If the event queue is *not empty*, it means we are
+            // *expecting* this message because we are fetching. Ignore it.
+            if (!eventQueue.isEmpty()) {
+                if (debugMode.get()) Logger.info("Baritone paused, but we are fetching. Ignoring.");
+                return;
+            }
+            
+            // If we are here, build is active AND queue is empty.
+            // This is an *unexpected* pause.
+            if (debugMode.get()) Logger.warn("Baritone has paused unexpectedly. Setting stuckPaused=true. User must manually resume.");
             stuckPaused = true;
             resetAllTasks(); // Clear queues, player must take over
             return;
@@ -705,7 +700,8 @@ public class BetterBaritoneBuild extends Module {
     // A centralized function to stop all activity and send Baritone home.
     private void forceStopAndGoHome(boolean pauseBuild) {
         resetAllTasks(); // Clear all jobs
-        buildCommand = ""; // Stop build
+        buildIsActive = false; // The build job is over
+        buildCommand = "";
         buildAnchorPos = null;
 
         if (pauseBuild) {
@@ -718,17 +714,15 @@ public class BetterBaritoneBuild extends Module {
             eventQueue.add(new Event(false, () -> {
                 if (baritone != null) baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(home));
             }, "Path to Home"));
-
-            // verification
             eventQueue.add(new Event(true, this::verifyArrivalAtHome, "Verify Home Arrival"));
         }
     }
     
-    // --- (NEW) Task Queueing Functions ---
+    // --- (v8) Event Queueing Functions ---
     
-    // (NEW) This is the *initial* command execution
-    private void executeBuildCommand() {
-        if (stuckPaused || buildCommand.isEmpty() || baritone == null) {
+    // (v8) This is the *initial* command execution
+    private void executeInitialBuildCommand() {
+        if (!buildIsActive || stuckPaused || buildCommand.isEmpty() || baritone == null) {
             return;
         }
         
@@ -765,10 +759,8 @@ public class BetterBaritoneBuild extends Module {
     
     private void queueDoubleCheckTask(Item item, int stacks) {
         itemsToDoubleCheck.add(item); // Add to list of items we need to find
-        String itemDesc = "DoubleCheck " + item.getName().getString();
         
         // If a double-check is already queued, just add the item to the list and return.
-        // finalizeDoubleCheck will handle it.
         if (isDoubleCheckQueued) {
             if(debugMode.get()) Logger.info("Double-check already queued. Adding %s to list.", item.getName().getString());
             return;
@@ -777,7 +769,6 @@ public class BetterBaritoneBuild extends Module {
         if(debugMode.get()) Logger.info("Queueing double-check task for %s", item.getName().getString());
         isDoubleCheckQueued = true;
         
-        // No double-check queued, so queue a new one.
         eventQueue.add(new Event(false, () -> {
             if(debugMode.get()) Logger.info("Starting double-check sequence...");
         }, "Start DoubleCheck"));
@@ -801,9 +792,8 @@ public class BetterBaritoneBuild extends Module {
         eventQueue.add(new Event(false, this::checkQueueAndResume, "CheckResume after DoubleCheck"));
     }
     
-    // (NEW) Event callback to wait for GUI
+    // (v8) Event callback to wait for GUI
     private void waitForGuiOpen(BlockPos pos, int ticksWaited) {
-        // (MODIFIED) Check if screen is a HandledScreen (container)
         if (mc.currentScreen instanceof HandledScreen) {
             if (debugMode.get()) Logger.info("GUI is open. Proceeding.");
             return; // GUI is open, continue queue
@@ -811,7 +801,6 @@ public class BetterBaritoneBuild extends Module {
         
         if (ticksWaited > (guiWaitTimeout.get() / 50)) { // 50ms per tick
              Logger.error("Timed out waiting for GUI at %s. Aborting task.", pos.toShortString());
-             eventQueue.clear(); // Clear queue to stop
              forceStopAndGoHome(true);
              return;
         }
@@ -820,7 +809,7 @@ public class BetterBaritoneBuild extends Module {
         eventQueue.addFirst(new Event(false, () -> waitForGuiOpen(pos, ticksWaited + 1), "Wait GUI for " + pos.toShortString()));
     }
     
-    // (NEW) Event callback to index storage during double-check
+    // (v8) Event callback to index storage during double-check
     private void indexOpenedStorage(BlockPos pos) {
         if (mc.player == null || !(mc.currentScreen instanceof HandledScreen)) {
             if (debugMode.get()) Logger.warn("Attempted to index storage at %s but no GUI was open.", pos.toShortString());
@@ -830,7 +819,6 @@ public class BetterBaritoneBuild extends Module {
         ScreenHandler handler = mc.player.currentScreenHandler;
         LinkedStorage newStorage = indexStorage(handler, pos);
         
-        // Remove old storage data
         linkedStorages.removeIf(ls -> ls.blockPos.equals(pos));
         
         if (newStorage != null && !newStorage.inventory.isEmpty()) {
@@ -842,21 +830,15 @@ public class BetterBaritoneBuild extends Module {
         }
     }
 
-    // (NEW) Event callback to check if we should resume
+    // (v8) Event callback to check if we should resume
     private void checkQueueAndResume() {
         if (!eventQueue.isEmpty()) {
-            // Do not resume if more tasks are queued
             if (debugMode.get()) Logger.info("Task finished, but queue is not empty (%d tasks left). Not resuming yet.", eventQueue.size());
             return;
         }
         
-        if (stuckPaused) {
-            Logger.info("Event queue is empty, but build is paused.");
-            return;
-        }
-
-        if (buildCommand.isEmpty()) {
-            if (debugMode.get()) Logger.info("Event queue is empty, but no build command is active.");
+        if (!buildIsActive || stuckPaused) {
+            if (debugMode.get()) Logger.info("Event queue empty, but build is paused or inactive. Not resuming.");
             return;
         }
         
@@ -864,7 +846,7 @@ public class BetterBaritoneBuild extends Module {
         executeResumeLogic();
     }
 
-    // (NEW) Event callback to finalize double-check
+    // (v8) Event callback to finalize double-check
     private void finalizeDoubleCheck() {
         if(debugMode.get()) Logger.info("Finalizing double-check for %d items...", itemsToDoubleCheck.size());
         isDoubleCheckQueued = false; // The check is complete
@@ -873,22 +855,18 @@ public class BetterBaritoneBuild extends Module {
         List<Item> itemsToRemove = new ArrayList<>();
 
         for (Item item : itemsToDoubleCheck) {
-            // Re-check player inventory first
             if (playerHasItem(item)) {
                 if (debugMode.get()) Logger.info("Double-check: item %s found in player inventory.", item.getName().getString());
                 itemsToRemove.add(item);
                 continue;
             }
             
-            // Re-run findItem on the *newly indexed* storages
             LinkedStorage found = findItem(item);
             if (found != null) {
                 if (debugMode.get()) Logger.info("Double-check: item %s found in linked storage at %s, scheduling fetch.", item.getName().getString(), found.blockPos.toShortString());
-                // (MODIFIED) Add to *front* of queue to fetch *before* any other queued items
-                queueFetchTaskAtFront(item, 1, found); // Assume 1 stack for now, Baritone will ask for more
+                queueFetchTaskAtFront(item, 1, found); // Assume 1 stack, Baritone will ask for more if needed
                 itemsToRemove.add(item);
             } else {
-                // after double-check, still not found
                 Logger.error("No linked storage contains the item: %s (confirmed after double-check)", item.getName().getString());
                 foundMissingItems = true;
             }
@@ -902,7 +880,7 @@ public class BetterBaritoneBuild extends Module {
         }
     }
     
-    // (NEW) Helper to add fetch tasks to the *front* of the queue
+    // (v8) Helper to add fetch tasks to the *front* of the queue
     private void queueFetchTaskAtFront(Item item, int stacks, LinkedStorage storage) {
         if (debugMode.get()) Logger.info("Queueing priority fetch task for %d stacks of %s", stacks, item.getName().getString());
         String itemDesc = "Fetch " + item.getName().getString();
@@ -928,8 +906,7 @@ public class BetterBaritoneBuild extends Module {
                 ItemStack s = mc.player.getInventory().getStack(i);
                 if (s != null && !s.isEmpty() && s.getItem() == item && s.getCount() > 0) return true;
             }
-        } catch (Exception ignored) {
-        }
+        } catch (Exception ignored) {}
         return false;
     }
 
@@ -940,28 +917,23 @@ public class BetterBaritoneBuild extends Module {
     @EventHandler
     private void onBlockInteract(InteractBlockEvent event) {
         if (!isActive() || mc.world == null) return;
-
-        // Manual player interaction sets lastBlockInteractPos and clears automated marker.
-        lastBlockInteractPos = event.result.getBlockPos();
-        lastAutomatedInteractPos = null; // any manual interaction cancels automated marker
-
         if (!storageLinkMode.get()) {
             lastBlockInteractPos = null; // Don't track if link mode is off
+            return;
         }
+        lastBlockInteractPos = event.result.getBlockPos();
+        lastAutomatedInteractPos = null;
     }
 
     @EventHandler
     private void onInventory(InventoryEvent event) {
-        // (REFACTORED) This event is now only for *manual* linking
-        // All automated indexing/moving is handled by the event queue
-
+        // (v8) This event is now only for *manual* linking
         if (!isActive() || mc.player == null || mc.world == null) return;
-        if (mc.currentScreen == null) return; // no open screen => nothing to index
-        if (lastBlockInteractPos == null) return; // no manual interact pending
+        if (mc.currentScreen == null || lastBlockInteractPos == null) return;
 
-        // If this open matches automated open, skip updating
+        // If this open matches automated open, skip
         if (lastAutomatedInteractPos != null && lastBlockInteractPos.equals(lastAutomatedInteractPos)
-            && (System.currentTimeMillis() - lastAutomatedInteractMs) < 5000L) { // 5 sec window
+            && (System.currentTimeMillis() - lastAutomatedInteractMs) < 5000L) {
             lastBlockInteractPos = null;
             return;
         }
@@ -975,7 +947,6 @@ public class BetterBaritoneBuild extends Module {
         BlockPos posToUpdate = lastBlockInteractPos;
         lastBlockInteractPos = null; // Consume the interact
 
-        // Use index-based iteration to safely remove while iterating
         boolean handled = false;
         for (int i = 0; i < linkedStorages.size(); i++) {
             LinkedStorage linkedStorage = linkedStorages.get(i);
@@ -991,19 +962,13 @@ public class BetterBaritoneBuild extends Module {
                 break;
             }
         }
-
         if (handled) return;
 
-        // If not handled above and storageLinkMode on, add new linked storage
         if (!storageLinkMode.get()) return;
 
         if (blockEntity instanceof ShulkerBoxBlockEntity || blockEntity instanceof ChestBlockEntity || blockEntity instanceof BarrelBlockEntity || blockEntity instanceof EnderChestBlockEntity) {
             LinkedStorage newStorage = indexStorage(mc.player.currentScreenHandler, posToUpdate);
-            if (newStorage == null) return;
-            if (newStorage.inventory.isEmpty()) {
-                if (debugMode.get()) Logger.error("No items found in the linked storage!");
-                return;
-            }
+            if (newStorage == null || newStorage.inventory.isEmpty()) return;
             linkedStorages.add(newStorage);
             saveLinkedStorages();
             Logger.info("Linked Storage located at X=%s, Y=%s, Z=%s", posToUpdate.getX(), posToUpdate.getY(), posToUpdate.getZ());
@@ -1012,15 +977,12 @@ public class BetterBaritoneBuild extends Module {
 
     private void saveLinkedStorages() {
         updateLinkedStorages();
-
         File configFile = OmegawareAddons.GetConfigFile("better-build", "linked_storages.json");
-
         try {
             configFile.getParentFile().mkdirs();
             Writer writer = new FileWriter(configFile);
             JsonObject payload = new JsonObject();
             JsonArray linkedStoragesArray = new JsonArray();
-            
             for (LinkedStorage linkedStorage : linkedStorages) {
                 JsonObject storageJson = new JsonObject();
                 storageJson.addProperty("blockPos", linkedStorage.blockPos.asLong());
@@ -1048,22 +1010,18 @@ public class BetterBaritoneBuild extends Module {
             OmegawareAddons.LOG.warn("{} not found!", configFile.toPath());
             return;
         }
-
         try {
             String content = Files.readString(configFile.toPath());
             JsonObject payload = GSON.fromJson(content, JsonObject.class);
             if (payload.has("linked_storages")) {
                 JsonArray linkedStoragesArray = payload.getAsJsonArray("linked_storages");
                 linkedStorages.clear();
-
                 for (int i = 0; i < linkedStoragesArray.size(); i++) {
                     JsonObject storageJson = linkedStoragesArray.get(i).getAsJsonObject();
                     LinkedStorage linkedStorage = new LinkedStorage();
-
                     if (storageJson.has("blockPos")) {
                         linkedStorage.blockPos = BlockPos.fromLong(storageJson.get("blockPos").getAsLong());
                     }
-
                     if (storageJson.has("inventory")) {
                         JsonObject inventoryJson = storageJson.getAsJsonObject("inventory");
                         linkedStorage.inventory = new ArrayList<>();
@@ -1133,9 +1091,7 @@ public class BetterBaritoneBuild extends Module {
         LinkedStorage linkedStorage = new LinkedStorage(blockPos, new ArrayList<>());
         for (int i = 0; i < SlotUtils.indexToId(SlotUtils.MAIN_START) && i < screenHandler.slots.size(); i++) {
             ItemStack stack = screenHandler.getSlot(i).getStack();
-            if (!stack.isEmpty()) {
-                linkedStorage.inventory.add(stack.copy());
-            }
+            if (!stack.isEmpty()) linkedStorage.inventory.add(stack.copy());
         }
         return linkedStorage;
     }
@@ -1151,36 +1107,31 @@ public class BetterBaritoneBuild extends Module {
         linkedStorages.sort(Comparator.comparingDouble(a -> a.blockPos.getSquaredDistance(mc.player.getBlockPos())));
         for (LinkedStorage linkedStorage : linkedStorages) {
             for (ItemStack stack : linkedStorage.inventory) {
-                if (stack.getItem() == item) {
-                    return linkedStorage;
-                }
+                if (stack.getItem() == item) return linkedStorage;
             }
         }
         return null;
     }
 
-    // (MODIFIED) This no longer queues events, it IS an event
+    // (v8) Event callback
     private void performStorageInteractSafely(LinkedStorage linkedStorage) {
         if (mc.player == null || mc.interactionManager == null || linkedStorage == null) return;
 
         if (openAttempts >= MAX_OPEN_ATTEMPTS) {
-            Logger.error("Too many open attempts for storage at X=%s, Y=%s, Z=%s. Aborting.", linkedStorage.blockPos.getX(), linkedStorage.blockPos.getY(), linkedStorage.blockPos.getZ());
+            Logger.error("Too many open attempts for storage at %s. Aborting.", linkedStorage.blockPos.toShortString());
             forceStopAndGoHome(true);
             return;
         }
 
-        // (MODIFIED) Close screen logic is now synchronous
         if (mc.currentScreen != null) {
-             Logger.info("Screen is open, closing it before interact...");
+             if (debugMode.get()) Logger.info("Screen is open, closing it before interact...");
              MinecraftClient.getInstance().execute(() -> mc.setScreen(null));
-             // Re-queue this event with a 1-tick delay
              eventQueue.addFirst(new Event(false, () -> performStorageInteractSafely(linkedStorage), "Re-Interact " + linkedStorage.blockPos.toShortString()));
              return;
         }
 
         Vec3d hitPos = Vec3d.ofCenter(linkedStorage.blockPos);
         BlockHitResult hit = new BlockHitResult(hitPos, Direction.UP, linkedStorage.blockPos, false);
-
         ActionResult result = mc.interactionManager.interactBlock(mc.player, Hand.MAIN_HAND, hit);
         lastInteractMs = System.currentTimeMillis();
         openAttempts++;
@@ -1193,31 +1144,27 @@ public class BetterBaritoneBuild extends Module {
             if (debugMode.get()) Logger.info("Interact accepted (attempt #%d)", openAttempts);
         } else {
             if (debugMode.get()) Logger.warn("Interact not accepted (attempt #%d), result=%s", openAttempts, result.toString());
-            // Re-queue the interact attempt
             eventQueue.addFirst(new Event(true, () -> performStorageInteractSafely(linkedStorage), "Re-Interact " + linkedStorage.blockPos.toShortString()));
         }
     }
 
-    // (MODIFIED) This is now an event callback
+    // (v8) Event callback
     private void moveSlots(Item itemToMove, int stacksToMove) {
         if (mc.player == null || !(mc.currentScreen instanceof HandledScreen)) {
-            if(debugMode.get()) Logger.warn("moveSlots: no open screen handler to move items from.");
+            if(debugMode.get()) Logger.warn("moveSlots: no open screen handler. Task failed.");
+            forceStopAndGoHome(true); // Fail the build
             return;
         }
         
         ScreenHandler handler = mc.player.currentScreenHandler;
-
         int count = 0;
-        
         int maxIndex = Math.min(SlotUtils.indexToId(SlotUtils.MAIN_START), handler.slots.size());
 
         for (int i = 0; i < maxIndex; i++) {
             if (!handler.getSlot(i).hasStack()) continue;
-
             Item item = handler.getSlot(i).getStack().getItem();
             if (item != itemToMove) continue;
 
-            // Update linked storage inventory
             if (lastAutomatedInteractPos != null) {
                 for (LinkedStorage ls : linkedStorages) {
                     if (ls.blockPos.equals(lastAutomatedInteractPos)) {
@@ -1230,41 +1177,31 @@ public class BetterBaritoneBuild extends Module {
 
             count++;
             InvUtils.shiftClick().slotId(i);
-            
             if (debugMode.get()) Logger.info("After shift-click: item=%s (attempt %d)", itemToMove.getName().getString(), count);
-
-            // small delay after shift-click
             try { Thread.sleep(afterShiftClickDelay.get()); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-
-            if (count >= stacksToMove) {
-                break;
-            }
+            if (count >= stacksToMove) break;
         }
-
-        // clear automated-interact marker now that we've finished handling the screen
         lastAutomatedInteractPos = null;
         lastAutomatedInteractMs = 0L;
-        
-        // Note: We don't call checkQueueAndResume here. It's a separate event in the queue.
     }
     
-    // (MODIFIED) This is now called *only* by checkQueueAndResume
+    // (v8) Event callback, also called by #resume
     private void executeResumeLogic() {
         if (!autoResumeOnFetchComplete.get()) {
              if (debugMode.get()) Logger.info("Fetch complete. Auto-resume is disabled.");
              return;
         }
-
         if (stuckPaused) {
-            Logger.info("Fetch complete but build is paused. Re-issue build to continue.");
+            Logger.info("Build is paused. Re-issue #resume or #build to continue.");
             return;
         }
-
         if (buildCommand.isEmpty()) {
-             if (debugMode.get()) Logger.info("Fetch complete, but no build command is active. Waiting.");
+             if (debugMode.get()) Logger.info("Event queue empty, but no build command is active. Waiting.");
              return;
         }
         
+        // (v8) Anchor check is only performed if buildAnchorPos is set.
+        // We set it on #build, and clear it (set to null) after first successful resume.
         if (requireAnchorMatchForResume.get() && buildAnchorPos != null) {
             if (mc.player == null) return;
             double distSq = mc.player.getBlockPos().getSquaredDistance(buildAnchorPos);
@@ -1277,27 +1214,22 @@ public class BetterBaritoneBuild extends Module {
             if (distSq > (posTolerance * posTolerance) || yawDiff > yawTolerance) {
                 Logger.info("Fetch complete, but player anchor does not match. Pausing build.");
                 Logger.info("Dist: %.2f (Max: %.1f), YawDiff: %.1f (Max: %.1f)", Math.sqrt(distSq), posTolerance, yawDiff, yawTolerance);
-                Logger.info("Move back to %s (Yaw: %.1f) and type #build to resume.", buildAnchorPos.toShortString(), buildAnchorYaw);
-                stuckPaused = true;
+                Logger.info("Move back to %s (Yaw: %.1f) and type #resume to continue.", buildAnchorPos.toShortString(), buildAnchorYaw);
+                stuckPaused = true; // (v8) This is now a *real* pause
                 return;
             } else {
                 if (debugMode.get()) Logger.info("Anchor match confirmed. Resuming build.");
             }
+        } else if (requireAnchorMatchForResume.get()) {
+            if (debugMode.get()) Logger.info("Resuming build (anchor check already passed/cleared).");
         }
         
-        if (debugMode.get()) Logger.info("All checks passed; attempting to resume build: %s", buildCommand);
-        
         // (CRITICAL) Consume the anchor. We are now resuming.
-        // If it fails and asks for *more* items, the next checkQueueAndResume will skip the anchor check.
         buildAnchorPos = null; 
 
         // Try resume sequence
         MeteorExecutor.execute(() -> {
-            try {
-                Thread.sleep(afterFetchResumeDelay.get());
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            try { Thread.sleep(afterFetchResumeDelay.get()); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
 
             final int maxAttempts = 6;
             boolean resumed = false;
@@ -1313,11 +1245,9 @@ public class BetterBaritoneBuild extends Module {
             }
 
             for (int attempt = 1; attempt <= maxAttempts && !resumed; attempt++) {
-                if (baritone == null || stuckPaused) break;
+                if (baritone == null || stuckPaused || !buildIsActive) break;
 
-                if (debugMode.get()) {
-                    Logger.info("Resume attempt %d: buildCommand='%s', stuckPaused=%b", attempt, buildCommand, stuckPaused);
-                }
+                if (debugMode.get()) Logger.info("Resume attempt %d: buildCommand='%s', stuckPaused=%b", attempt, buildCommand, stuckPaused);
 
                 final int att = attempt;
                 MinecraftClient.getInstance().execute(() -> {
@@ -1349,7 +1279,7 @@ public class BetterBaritoneBuild extends Module {
             }
 
             // final fallback
-            if (!resumed && !stuckPaused && mc.player != null && mc.getNetworkHandler() != null) {
+            if (!resumed && !stuckPaused && buildIsActive && mc.player != null && mc.getNetworkHandler() != null) {
                 try {
                     if (debugMode.get()) Logger.info("Fallback: sending build command as chat message: %s", buildCommand);
                     MinecraftClient.getInstance().execute(() -> {
