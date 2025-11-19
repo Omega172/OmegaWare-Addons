@@ -36,7 +36,7 @@ dependencies {
     modImplementation("meteordevelopment:meteor-client:$meteorClientVersion-SNAPSHOT")
 
     // Baritone
-    modImplementation("meteordevelopment:baritone:$minecraftVersion-SNAPSHOT")
+    modCompileOnly("meteordevelopment:baritone:$minecraftVersion-SNAPSHOT")
 }
 
 tasks {

@@ -9,6 +9,7 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.metadata.ModMetadata;
 import xyz.omegaware.addon.commands.LinkCommand;
 import xyz.omegaware.addon.commands.ShulkerQueueCommand;
+import xyz.omegaware.addon.hud.ChestCount;
 import xyz.omegaware.addon.hud.OnlineTSRMembersHUD;
 import xyz.omegaware.addon.modules.*;
 import com.mojang.logging.LogUtils;
@@ -28,7 +29,7 @@ public class OmegawareAddons extends MeteorAddon {
     public static final Category CATEGORY = new Category("OmegaWare");
     public static final HudGroup HUD_GROUP = new HudGroup("OmegaWare");
 
-    public static final BetterBaritoneBuild BETTER_BARITONE_BUILD = new BetterBaritoneBuild();
+    public static BetterBaritoneBuild BETTER_BARITONE_BUILD = null;
 
     public static File GetConfigFile(String key, String filename) {
         return new File(new File(new File(new File(MeteorClient.FOLDER, "omegaware"), key), Utils.getFileWorldName()), filename);
@@ -52,6 +53,7 @@ public class OmegawareAddons extends MeteorAddon {
         }
 
         if (BaritoneUtils.IS_AVAILABLE) {
+            BETTER_BARITONE_BUILD = new BetterBaritoneBuild();
             Modules.get().add(BETTER_BARITONE_BUILD);
         }
 
@@ -59,6 +61,7 @@ public class OmegawareAddons extends MeteorAddon {
         Commands.add(new ShulkerQueueCommand());
 
         Hud.get().register(OnlineTSRMembersHUD.INFO);
+        Hud.get().register(ChestCount.INFO);
     }
 
     @Override

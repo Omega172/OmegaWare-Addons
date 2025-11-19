@@ -651,7 +651,7 @@ public class BetterBaritoneBuild extends Module {
     }
 
     @EventHandler
-    private void onTickPost(TickEvent.Post event) {
+    private void onTickPre(TickEvent.Pre event) {
         if (!isActive()) return;
 
         if (!EventRegistry.INSTANCE.isEmpty() && currentEvent == null) {
@@ -662,6 +662,7 @@ public class BetterBaritoneBuild extends Module {
             if (debugMode.get()) {
                 Logger.info("Executing event: %s", currentEvent.type.toString());
             }
+
             if (currentEvent.bWaitOnPath && baritone.getPathingBehavior().hasPath() || baritone.getPathingBehavior().isPathing()) {
                 // Wait for Baritone to finish pathing
                 return;
@@ -670,7 +671,11 @@ public class BetterBaritoneBuild extends Module {
             currentEvent.callback.run();
             currentEvent = null;
         }
-        // Home shit
+    }
+
+    @EventHandler
+    private void onTickPost(TickEvent.Post event) {
+        // Home Shit and anti-stuck shit
     }
 
     @EventHandler
@@ -889,7 +894,8 @@ public class BetterBaritoneBuild extends Module {
                     FetchRegistry.INSTANCE.update();
 
                     if (FetchRegistry.INSTANCE.isEmpty()) {
-                        EventRegistry.INSTANCE.push(new EventRegistry.Event(EventRegistry.Event.EventType.Resume, true, () -> baritone.getCommandManager().execute(buildCommand)));
+                        baritone.getPathingBehavior().cancelEverything();
+                        EventRegistry.INSTANCE.push(new EventRegistry.Event(EventRegistry.Event.EventType.Resume, false, () -> baritone.getCommandManager().execute(buildCommand)));
                     }
                 });
             });
