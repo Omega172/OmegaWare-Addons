@@ -8,12 +8,12 @@ import meteordevelopment.meteorclient.gui.widgets.containers.WHorizontalList;
 import meteordevelopment.meteorclient.gui.widgets.containers.WVerticalList;
 import meteordevelopment.meteorclient.gui.widgets.pressable.WButton;
 import meteordevelopment.meteorclient.settings.*;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
 import xyz.omegaware.addon.OmegawareAddons;
 import meteordevelopment.meteorclient.events.game.ReceiveMessageEvent;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.orbit.EventHandler;
+import net.minecraft.ChatFormatting;
+import net.minecraft.network.chat.Component;
 import xyz.omegaware.addon.utils.Logger;
 
 import java.io.File;
@@ -165,7 +165,7 @@ public class ChatFilterModule extends Module {
         if (!message.contains("»")) return;
 
         String username = message.split(" » ")[0];
-        if (username.equals(mc.player.getNameForScoreboard())) return;
+        if (username.equals(mc.player.getScoreboardName())) return;
 
         boolean isRanked = false;
         if (message.startsWith("[")) {
@@ -209,12 +209,12 @@ public class ChatFilterModule extends Module {
 
         // Little thing for me as the Developer :)
         if (username.equals("LostEmotions") || username.equals("LostFriendships")) {
-            Text msg = Text.literal("[").formatted(Formatting.WHITE)
-                .append(Text.literal("OmegaWare").formatted(Formatting.AQUA))
-                .append(Text.literal("] "))
-                .append(username).formatted(Formatting.AQUA)
-                .append(Text.literal(" » ").formatted(Formatting.WHITE))
-                .append(Text.literal(message).formatted(Formatting.AQUA));
+            Component msg = Component.literal("[").withStyle(ChatFormatting.WHITE)
+                .append(Component.literal("OmegaWare").withStyle(ChatFormatting.AQUA))
+                .append(Component.literal("] "))
+                .append(username).withStyle(ChatFormatting.AQUA)
+                .append(Component.literal(" » ").withStyle(ChatFormatting.WHITE))
+                .append(Component.literal(message).withStyle(ChatFormatting.AQUA));
             event.setMessage(msg);
         }
     }
@@ -226,7 +226,7 @@ public class ChatFilterModule extends Module {
 
         WButton btn = theme.button("Print number of filtered messages");
         btn.action = () -> {
-            Logger.info("%sTotal Filtered Messages: %s%d", Formatting.GREEN, Formatting.WHITE, filteredCount);
+            Logger.info("%sTotal Filtered Messages: %s%d", ChatFormatting.GREEN, ChatFormatting.WHITE, filteredCount);
         };
         hList.add(btn);
 

@@ -2,9 +2,9 @@ package xyz.omegaware.addon.commands;
 
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import meteordevelopment.meteorclient.commands.Command;
-import net.minecraft.command.CommandSource;
-import net.minecraft.item.ItemStack;
-import net.minecraft.util.Formatting;
+import net.minecraft.ChatFormatting;
+import net.minecraft.client.multiplayer.ClientSuggestionProvider;
+import net.minecraft.world.item.ItemStack;
 import xyz.omegaware.addon.modules.ItemFrameDupeModule;
 import xyz.omegaware.addon.utils.Logger;
 
@@ -14,21 +14,21 @@ public class ShulkerQueueCommand extends Command {
     }
 
     @Override
-    public void build(LiteralArgumentBuilder<CommandSource> builder) {
+    public void build(LiteralArgumentBuilder<ClientSuggestionProvider> builder) {
         builder.then(literal("add").executes(context -> {
             if (mc.player == null) {
                 Logger.error("Player was somehow null");
                 return SINGLE_SUCCESS;
             }
 
-            ItemStack stack = mc.player.getMainHandStack();
+            ItemStack stack = mc.player.getMainHandItem();
             if (stack.isEmpty()) {
                 Logger.error("You must hold an item in your main hand");
                 return SINGLE_SUCCESS;
             }
             ItemFrameDupeModule.shulkerQueue.add(stack.copy());
 
-            Logger.info("%sAdded %s to the shulker queue", Formatting.GREEN, stack.toHoverableText());
+            Logger.info("%sAdded %s to the shulker queue", ChatFormatting.GREEN, stack.getDisplayName());
 
             return SINGLE_SUCCESS;
         }));
@@ -39,7 +39,7 @@ public class ShulkerQueueCommand extends Command {
                 return SINGLE_SUCCESS;
             }
 
-            ItemStack stack = mc.player.getMainHandStack();
+            ItemStack stack = mc.player.getMainHandItem();
             if (stack.isEmpty()) {
                 Logger.error("You must hold an item in your main hand");
                 return SINGLE_SUCCESS;
@@ -51,7 +51,7 @@ public class ShulkerQueueCommand extends Command {
 
             ItemFrameDupeModule.shulkerQueue.remove(stack.copy());
 
-            Logger.info("%sRemoved%s %s from the shulker queue", Formatting.RED, Formatting.WHITE ,stack.toHoverableText());
+            Logger.info("%sRemoved%s %s from the shulker queue", ChatFormatting.RED, ChatFormatting.WHITE ,stack.getDisplayName());
             return SINGLE_SUCCESS;
         }));
 
@@ -65,7 +65,7 @@ public class ShulkerQueueCommand extends Command {
                 Logger.info("Shulker queue is empty");
             } else {
                 StringBuilder sb = new StringBuilder("Shulker queue: ");
-                ItemFrameDupeModule.shulkerQueue.forEach(itemStack -> sb.append(itemStack.toHoverableText().getString()).append("\n"));
+                ItemFrameDupeModule.shulkerQueue.forEach(itemStack -> sb.append(itemStack.getDisplayName().getString()).append("\n"));
                 Logger.info(sb.toString());
             }
 

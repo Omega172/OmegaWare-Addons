@@ -14,8 +14,8 @@ import meteordevelopment.meteorclient.settings.Setting;
 import meteordevelopment.meteorclient.settings.SettingGroup;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.utils.network.Http;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.util.Formatting;
+import net.minecraft.ChatFormatting;
+import net.minecraft.client.Minecraft;
 import xyz.omegaware.addon.OmegawareAddons;
 import xyz.omegaware.addon.utils.Logger;
 
@@ -198,8 +198,8 @@ public class TSRKitBotModule extends Module {
         }
 
         JsonObject payload = new JsonObject();
-        assert MinecraftClient.getInstance().player != null;
-        payload.addProperty("minecraft_username", MinecraftClient.getInstance().player.getName().getString());
+        assert Minecraft.getInstance().player != null;
+        payload.addProperty("minecraft_username", Minecraft.getInstance().player.getName().getString());
         payload.addProperty("discord_id", DiscordIPC.getUser().id);
         payload.addProperty("retrieve_code", code.length > 0 ? code[0] : "");
 
@@ -211,14 +211,14 @@ public class TSRKitBotModule extends Module {
         if (response.statusCode() == 200) {
             String message = response.body().get("message").getAsString();
             if (message != null && message.equals("Retrieval code sent to your Discord DMs.")) {
-                Logger.info("%sMessage: %s%sGrab the code and use the command .auth <CODE>", Formatting.GREEN, Formatting.WHITE, message);
+                Logger.info("%sMessage: %s%sGrab the code and use the command .auth <CODE>", ChatFormatting.GREEN, ChatFormatting.WHITE, message);
                 return false;
             }
 
             // print api key to chat
             if (response.body().has("api_key")) {
                 apiKey = response.body().get("api_key").getAsString();
-                Logger.info("%sSet API Key:%s %s", Formatting.GREEN, Formatting.WHITE, apiKey);
+                Logger.info("%sSet API Key:%s %s", ChatFormatting.GREEN, ChatFormatting.WHITE, apiKey);
 
                 saveApiKey(apiKey);
             } else {
@@ -240,8 +240,8 @@ public class TSRKitBotModule extends Module {
     private static void conditionallyPrintOrders(String... statusFlag) {
         if (!getIsLinked()) return;
 
-        assert MinecraftClient.getInstance().player != null;
-        Http.Request request = Http.get(apiUrl + "/order/history?minecraft_username=" + MinecraftClient.getInstance().player.getName().getString())
+        assert Minecraft.getInstance().player != null;
+        Http.Request request = Http.get(apiUrl + "/order/history?minecraft_username=" + Minecraft.getInstance().player.getName().getString())
             .header("Content-Type", "application/json")
             .header("x-api-key", apiKey);
 
@@ -250,7 +250,7 @@ public class TSRKitBotModule extends Module {
         if (response.statusCode() == 200) {
             JsonArray orders = response.body().getAsJsonArray("orders");
             if (orders.isEmpty()) {
-                Logger.info("%sNo order history.", Formatting.GREEN);
+                Logger.info("%sNo order history.", ChatFormatting.GREEN);
                 return;
             }
 
@@ -275,8 +275,8 @@ public class TSRKitBotModule extends Module {
                 if (!isValidStatus) continue;
 
                 Logger.info("%sOrder ID:%s %s\n | %sStatus:%s %s\n | %sRequest Type:%s %s\n | %sQuantity:%s %s",
-                        Formatting.GREEN, Formatting.WHITE, orderId, Formatting.GREEN, Formatting.WHITE, status,
-                        Formatting.GREEN, Formatting.WHITE, requestType, Formatting.GREEN, Formatting.WHITE, quantity);
+                        ChatFormatting.GREEN, ChatFormatting.WHITE, orderId, ChatFormatting.GREEN, ChatFormatting.WHITE, status,
+                        ChatFormatting.GREEN, ChatFormatting.WHITE, requestType, ChatFormatting.GREEN, ChatFormatting.WHITE, quantity);
             }
         } else {
             if (response.body() == null) {
@@ -321,7 +321,7 @@ public class TSRKitBotModule extends Module {
             HttpResponse<JsonObject> response = request.sendJsonResponse(JsonObject.class);
 
             if (response.statusCode() == 200) {
-                Logger.info("%sBalance:%s %s ",Formatting.GREEN, Formatting.WHITE, response.body().get("credits").getAsString());
+                Logger.info("%sBalance:%s %s ",ChatFormatting.GREEN, ChatFormatting.WHITE, response.body().get("credits").getAsString());
             } else {
                 if (response.body() == null) {
                     Logger.error("No response from server.");
@@ -346,9 +346,9 @@ public class TSRKitBotModule extends Module {
 
             if (response.statusCode() == 200) {
                 if (response.body().has("message")) {
-                    Logger.info("%sMessage:%s %s", Formatting.WHITE, Formatting.GREEN, response.body().get("message").getAsString());
+                    Logger.info("%sMessage:%s %s", ChatFormatting.WHITE, ChatFormatting.GREEN, response.body().get("message").getAsString());
                 } else {
-                    Logger.info("%sQueue Position:%s %s", Formatting.GREEN, Formatting.WHITE, response.body().get("position").getAsString());
+                    Logger.info("%sQueue Position:%s %s", ChatFormatting.GREEN, ChatFormatting.WHITE, response.body().get("position").getAsString());
                 }
             } else {
                 if (response.body() == null) {
@@ -531,21 +531,21 @@ public class TSRKitBotModule extends Module {
             HttpResponse<JsonObject> response = request.sendJsonResponse(JsonObject.class);
             if (response.statusCode() == 200) {
                 if (response.body().has("message")) {
-                    Logger.info("%sMessage:%s %s", Formatting.GREEN, Formatting.WHITE,response.body().get("message").getAsString());
+                    Logger.info("%sMessage:%s %s", ChatFormatting.GREEN, ChatFormatting.WHITE,response.body().get("message").getAsString());
                     return;
                 } else if (response.body().has("error")) {
                     Logger.error("%s", response.body().get("error").getAsString());
                     return;
                 }
 
-                Logger.info("%sOrder Placed:%s %s | %sPriority:%s %s", Formatting.GREEN, Formatting.WHITE, response.body().get("order_id").getAsString(), Formatting.GREEN, Formatting.WHITE, response.body().get("priority").getAsString());
+                Logger.info("%sOrder Placed:%s %s | %sPriority:%s %s", ChatFormatting.GREEN, ChatFormatting.WHITE, response.body().get("order_id").getAsString(), ChatFormatting.GREEN, ChatFormatting.WHITE, response.body().get("priority").getAsString());
             } else {
                 if (response.body() == null) {
                     Logger.error("No response from server.");
                     return;
                 }
 
-                Logger.error("%s", Formatting.WHITE, response.body().get("error").getAsString());
+                Logger.error("%s", ChatFormatting.WHITE, response.body().get("error").getAsString());
             }
         };
         hList2.add(orderButton);
@@ -580,14 +580,14 @@ public class TSRKitBotModule extends Module {
             HttpResponse<JsonObject> response = request.sendJsonResponse(JsonObject.class);
 
             if (response.statusCode() == 200) {
-                Logger.info("%sCancel All Orders:%s %s", Formatting.GREEN, Formatting.WHITE, response.body().get("message").getAsString());
+                Logger.info("%sCancel All Orders:%s %s", ChatFormatting.GREEN, ChatFormatting.WHITE, response.body().get("message").getAsString());
             } else {
                 if (response.body() == null) {
                     Logger.error("No response from server.");
                     return;
                 }
 
-                Logger.error("%s", Formatting.WHITE, response.body().get("error").getAsString());
+                Logger.error("%s", ChatFormatting.WHITE, response.body().get("error").getAsString());
             }
         };
         hList3.add(cancelAllButton);
@@ -621,7 +621,7 @@ public class TSRKitBotModule extends Module {
             HttpResponse<JsonObject> response = request.sendJsonResponse(JsonObject.class);
 
             if (response.statusCode() == 200) {
-                Logger.info("%sOrder Cancelled:%s %s", Formatting.GREEN, Formatting.WHITE, response.body().get("order_id").getAsString());
+                Logger.info("%sOrder Cancelled:%s %s", ChatFormatting.GREEN, ChatFormatting.WHITE, response.body().get("order_id").getAsString());
             } else {
                 if (response.body() == null) {
                     Logger.error("No response from server");
@@ -684,8 +684,8 @@ public class TSRKitBotModule extends Module {
                 }
 
                 Logger.info("%sTokens Sent:%s %s | %sNew Balance:%s %s",
-                    Formatting.GREEN, Formatting.WHITE, response.body().get("message").getAsString(),
-                    Formatting.GREEN, Formatting.WHITE, response.body().get("from_balance").getAsString());
+                    ChatFormatting.GREEN, ChatFormatting.WHITE, response.body().get("message").getAsString(),
+                    ChatFormatting.GREEN, ChatFormatting.WHITE, response.body().get("from_balance").getAsString());
             } else {
                 if (response.body() == null) {
                     Logger.error("No response from server.");

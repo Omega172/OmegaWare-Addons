@@ -3,11 +3,11 @@ package xyz.omegaware.addon.modules;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.friends.Friends;
 import meteordevelopment.meteorclient.utils.player.ChatUtils;
-import net.minecraft.util.Formatting;
 import xyz.omegaware.addon.OmegawareAddons;
 import meteordevelopment.meteorclient.events.game.ReceiveMessageEvent;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.orbit.EventHandler;
+import net.minecraft.ChatFormatting;
 import xyz.omegaware.addon.utils.Logger;
 
 import java.util.List;
@@ -135,17 +135,17 @@ public class TPAAutomationModule extends Module {
 
         String username = matcher.group(1);
 
-        if (printTpaDetected.get()) Logger.info("%sTPA Detected:%s %s!", Formatting.RED, Formatting.WHITE, username);
+        if (printTpaDetected.get()) Logger.info("%sTPA Detected:%s %s!", ChatFormatting.RED, ChatFormatting.WHITE, username);
 
         if (approvedUsers.get().contains(username) || (acceptFriends.get() && Friends.get().get(username) != null) || (acceptTSRBots.get() &&  TSR_KIT_BOT_USERS.contains(username))) {
             ChatUtils.sendPlayerMsg("/tpy " + username);
 
-            if (printTpaAccepted.get()) Logger.info("%sAuto Accepted:%s %s!", Formatting.GREEN, Formatting.WHITE, username);
+            if (printTpaAccepted.get()) Logger.info("%sAuto Accepted:%s %s!", ChatFormatting.GREEN, ChatFormatting.WHITE, username);
 
         } else if (autoDeny.get()){
             ChatUtils.sendPlayerMsg("/tpn " + username);
 
-            if (printTpaIgnored.get()) Logger.info("%sIgnored:%s %s!", Formatting.RED, Formatting.WHITE, username);
+            if (printTpaIgnored.get()) Logger.info("%sIgnored:%s %s!", ChatFormatting.RED, ChatFormatting.WHITE, username);
         }
 
         if (filterTpaMessages.get() && printTpaDetected.get()) event.cancel();

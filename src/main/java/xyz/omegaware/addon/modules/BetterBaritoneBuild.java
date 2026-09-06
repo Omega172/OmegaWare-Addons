@@ -29,21 +29,30 @@ import meteordevelopment.meteorclient.utils.player.InvUtils;
 import meteordevelopment.meteorclient.utils.player.SlotUtils;
 import meteordevelopment.meteorclient.utils.render.color.SettingColor;
 import meteordevelopment.orbit.EventHandler;
-import net.minecraft.block.entity.*;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.ClientPlayNetworkHandler;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.registry.Registries;
-import net.minecraft.screen.ScreenHandler;
-import net.minecraft.screen.ScreenHandlerType;
-import net.minecraft.text.MutableText;
-import net.minecraft.text.Text;
+import net.minecraft.ChatFormatting;
+import net.minecraft.world.level.block.entity.*;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientPacketListener;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.*;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.MenuType;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.entity.BarrelBlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.ChestBlockEntity;
+import net.minecraft.world.level.block.entity.EnderChestBlockEntity;
+import net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 import xyz.omegaware.addon.OmegawareAddons;
 import xyz.omegaware.addon.utils.Logger;
 
@@ -117,7 +126,7 @@ class StorageRegistry {
         public List<ItemStack> inventory;
 
         public Storage() {
-            this.blockPos = BlockPos.ORIGIN;
+            this.blockPos = BlockPos.ZERO;
             this.inventory = new ArrayList<>();
         }
 
@@ -148,15 +157,15 @@ class StorageRegistry {
         return new ArrayList<>(storages);
     }
 
-    public Storage indexStorage(ScreenHandler screenHandler, BlockPos blockPos) {
+    public Storage indexStorage(AbstractContainerMenu screenHandler, BlockPos blockPos) {
         if (screenHandler == null || blockPos == null) return null;
 
         int max = 27; // Default size for most chests, shulker boxes, etc.
-        if (screenHandler.getType() == ScreenHandlerType.GENERIC_9X6) max = 27 * 2;
+        if (screenHandler.getType() == MenuType.GENERIC_9x6) max = 27 * 2;
 
         List<ItemStack> inventory = new ArrayList<>();
         for (int i = 0; i < max; i++) {
-            ItemStack stack = screenHandler.getSlot(i).getStack();
+            ItemStack stack = screenHandler.getSlot(i).getItem();
             if (!stack.isEmpty()) {
                 inventory.add(stack);
             }
@@ -186,25 +195,25 @@ class StorageRegistry {
     public void findItemAndPath(Item item) {
         Storage storage = findItem(item);
         if (storage != null) {
-            Logger.info("%s Navigating to storage containing:%s %s", Formatting.GREEN, Formatting.WHITE, item.getName().getString());
+            Logger.info("%s Navigating to storage containing:%s %s", ChatFormatting.GREEN, ChatFormatting.WHITE, item.getName(item.getDefaultInstance()).getString());
             EventRegistry.INSTANCE.push(new EventRegistry.Event(EventRegistry.Event.EventType.PathToPos, true, () -> OmegawareAddons.BETTER_BARITONE_BUILD.pathToPos(storage.blockPos)));
             EventRegistry.INSTANCE.push(new EventRegistry.Event(EventRegistry.Event.EventType.InteractWithBlock, true, () -> {
-                if (mc.player == null || mc.interactionManager == null) {
+                if (mc.player == null || mc.gameMode == null) {
                     Logger.error("Player or interaction manager is null!");
                     return;
                 }
-                mc.setScreen(null); // Close any open screens to ensure that we can interact with the storage block
+                mc.gui.setScreen(null); // Close any open screens to ensure that we can interact with the storage block
 
-                Vec3d hitPos = Vec3d.ofCenter(storage.blockPos);
+                Vec3 hitPos = Vec3.atCenterOf(storage.blockPos);
                 BlockHitResult hit = new BlockHitResult(hitPos, Direction.UP, storage.blockPos, false);
 
-                ActionResult result = mc.interactionManager.interactBlock(mc.player, Hand.MAIN_HAND, hit); // Attempt to interact with the block
+                InteractionResult result = mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, hit); // Attempt to interact with the block
                 if (OmegawareAddons.BETTER_BARITONE_BUILD.debugMode.get()) {
-                    Logger.info("Attempted interact with block at %s, result: %s", storage.blockPos, result.isAccepted());
+                    Logger.info("Attempted interact with block at %s, result: %s", storage.blockPos, result.consumesAction());
                 }
 
-                if (result.isAccepted()) // If the interaction was successful, we can then make the player swing their hand
-                    mc.player.swingHand(Hand.MAIN_HAND);
+                if (result.consumesAction()) // If the interaction was successful, we can then make the player swing their hand
+                    mc.player.swing(InteractionHand.MAIN_HAND);
             }));
         }
     }
@@ -212,14 +221,14 @@ class StorageRegistry {
     public void update() {
         storages.removeIf(storage -> {
             if (storage == null || storage.blockPos == null) return true;
-            assert MinecraftClient.getInstance().world != null;
-            if (!MinecraftClient.getInstance().world.isPosLoaded(storage.blockPos)) return false;
+            assert Minecraft.getInstance().level != null;
+            if (!Minecraft.getInstance().level.isLoaded(storage.blockPos)) return false;
 
             if (storage.inventory == null || storage.inventory.isEmpty()) {
                 return true;
             }
 
-            return MinecraftClient.getInstance().world.getBlockState(storage.blockPos).isAir() || MinecraftClient.getInstance().world.getBlockEntity(storage.blockPos) == null;
+            return Minecraft.getInstance().level.getBlockState(storage.blockPos).isAir() || Minecraft.getInstance().level.getBlockEntity(storage.blockPos) == null;
         });
     }
 
@@ -250,7 +259,7 @@ class StorageRegistry {
                 JsonObject inventoryJson = new JsonObject();
                 for (ItemStack stack : storage.inventory) {
                     if (!stack.isEmpty()) {
-                        String itemId = Registries.ITEM.getId(stack.getItem()).toString();
+                        String itemId = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
                         JsonObject itemData = new JsonObject();
                         itemData.addProperty("count", stack.getCount());
                         inventoryJson.add(itemId, itemData);
@@ -290,7 +299,7 @@ class StorageRegistry {
                     Storage storage = new Storage();
 
                     if (storageJson.has("blockPos")) {
-                        storage.blockPos = BlockPos.fromLong(storageJson.get("blockPos").getAsLong());
+                        storage.blockPos = BlockPos.of(storageJson.get("blockPos").getAsLong());
                     }
 
                     if (storageJson.has("inventory")) {
@@ -298,7 +307,7 @@ class StorageRegistry {
                         storage.inventory = new ArrayList<>();
 
                         for (String itemId : inventoryJson.keySet()) {
-                            Item item = Registries.ITEM.get(Identifier.of(itemId)).asItem();
+                            Item item = BuiltInRegistries.ITEM.getValue(Identifier.parse(itemId)).asItem();
                             if (item != null) {
                                 JsonObject itemData = inventoryJson.getAsJsonObject(itemId);
                                 int count = itemData.get("count").getAsInt();
@@ -362,7 +371,7 @@ class Home {
             String content = Files.readString(configFile.toPath());
             JsonObject payload = new GsonBuilder().setPrettyPrinting().create().fromJson(content, JsonObject.class);
             if (payload.has("home")) {
-                pos = BlockPos.fromLong(payload.get("home").getAsLong());
+                pos = BlockPos.of(payload.get("home").getAsLong());
             }
         } catch (Exception e) {
             OmegawareAddons.LOG.error("Failed to load Home from {}: {}", configFile.toPath(), e.getMessage());
@@ -548,7 +557,7 @@ public class BetterBaritoneBuild extends Module {
             return;
         }
 
-        baritone = BaritoneAPI.getProvider().getBaritoneForMinecraft(MinecraftClient.getInstance());
+        baritone = BaritoneAPI.getProvider().getBaritoneForMinecraft(Minecraft.getInstance());
 
         currentEvent = null;
         EventRegistry.INSTANCE.clear();
@@ -594,13 +603,13 @@ public class BetterBaritoneBuild extends Module {
 
         WButton setHomeBtn = theme.button("Set Home");
         setHomeBtn.action = () -> {
-            if (mc.player == null || mc.world == null) return;
+            if (mc.player == null || mc.level == null) return;
 
-            Home.INSTANCE.setHome(mc.player.getBlockPos());
+            Home.INSTANCE.setHome(mc.player.blockPosition());
             Home.INSTANCE.save();
 
             BlockPos home = Home.INSTANCE.getPos();
-            Logger.info("%sHome point set to:%s X=%s, Y=%s, Z=%s", Formatting.GREEN, Formatting.WHITE, home.getX(), home.getY(), home.getZ());
+            Logger.info("%sHome point set to:%s X=%s, Y=%s, Z=%s", ChatFormatting.GREEN, ChatFormatting.WHITE, home.getX(), home.getY(), home.getZ());
         };
         hList.add(setHomeBtn);
 
@@ -609,7 +618,7 @@ public class BetterBaritoneBuild extends Module {
         printFetchListBtn.action = () -> {
             StringBuilder sb = new StringBuilder();
             FetchRegistry.INSTANCE.get().forEach(material -> {
-                sb.append(String.format("Item: %s, Stacks: %d\n", material.item.getName().getString(), material.stacks));
+                sb.append(String.format("Item: %s, Stacks: %d\n", material.item.getName(material.item.getDefaultInstance()).getString(), material.stacks));
             });
 
             Logger.info("Fetch List:\n%s", sb.toString());
@@ -680,11 +689,11 @@ public class BetterBaritoneBuild extends Module {
 
     @EventHandler
     private void onRender(Render3DEvent event) {
-        if (!isActive() || mc.world == null || !highlightLinkedStorages.get()) return;
+        if (!isActive() || mc.level == null || !highlightLinkedStorages.get()) return;
 
         if (!invertHighlight.get()) {
             StorageRegistry.INSTANCE.getAll().forEach(storage -> {
-                if (storage.blockPos == null || !mc.world.isPosLoaded(storage.blockPos)) return;
+                if (storage.blockPos == null || !mc.level.isLoaded(storage.blockPos)) return;
 
                 event.renderer.box(storage.blockPos, sideColor.get(), lineColor.get(), shapeMode.get(), 0);
             });
@@ -693,8 +702,8 @@ public class BetterBaritoneBuild extends Module {
                 if (!(blockEntity instanceof ShulkerBoxBlockEntity || blockEntity instanceof ChestBlockEntity || blockEntity instanceof BarrelBlockEntity || blockEntity instanceof EnderChestBlockEntity))
                     continue;
 
-                BlockPos pos = blockEntity.getPos();
-                if (!mc.world.isPosLoaded(pos) || StorageRegistry.INSTANCE.find(pos) != null) return;
+                BlockPos pos = blockEntity.getBlockPos();
+                if (!mc.level.isLoaded(pos) || StorageRegistry.INSTANCE.find(pos) != null) return;
 
                 event.renderer.box(pos, sideColor.get(), lineColor.get(), shapeMode.get(), 0);
             }
@@ -703,9 +712,9 @@ public class BetterBaritoneBuild extends Module {
 
     @EventHandler
     private void onBlockInteract(InteractBlockEvent event) {
-        if (!isActive() || mc.world == null) return;
+        if (!isActive() || mc.level == null) return;
 
-        BlockEntity blockEntity = mc.world.getBlockEntity(event.result.getBlockPos());
+        BlockEntity blockEntity = mc.level.getBlockEntity(event.result.getBlockPos());
         if (!(blockEntity instanceof ShulkerBoxBlockEntity || blockEntity instanceof ChestBlockEntity || blockEntity instanceof BarrelBlockEntity || blockEntity instanceof EnderChestBlockEntity)) {
             if (debugMode.get()) Logger.error("Block entity is not a valid storage type!");
             lastBlockInteractPos = null;
@@ -746,11 +755,11 @@ public class BetterBaritoneBuild extends Module {
                 blockName = blockName.substring(0, endIndex);
             }
 
-            Identifier identifier = Identifier.of(blockName);
-            Item item = Registries.ITEM.get(identifier).asItem();
+            Identifier identifier = Identifier.parse(blockName);
+            Item item = BuiltInRegistries.ITEM.getValue(identifier).asItem();
 
             if (item == null) {
-                if (debugMode.get()) Logger.error("Item not found: %s%s", Formatting.WHITE, blockName);
+                if (debugMode.get()) Logger.error("Item not found: %s%s", ChatFormatting.WHITE, blockName);
                 return;
             }
 
@@ -758,7 +767,7 @@ public class BetterBaritoneBuild extends Module {
 
             StorageRegistry.Storage storage = StorageRegistry.INSTANCE.findItem(item);
             if (storage == null) {
-                Logger.error("No linked storage contains the item: %s%s", Formatting.WHITE, item.getName().getString());
+                Logger.error("No linked storage contains the item: %s%s", ChatFormatting.WHITE, item.getName(item.getDefaultInstance()).getString());
 
                 if (disconnectOnError.get()) {
                     AutoReconnect autoReconnect = Modules.get().get(AutoReconnect.class);
@@ -767,11 +776,11 @@ public class BetterBaritoneBuild extends Module {
                     }
 
                     String prefix = Logger.PREFIX.getString();
-                    MutableText text = Text.literal(String.format("%s%s%s%s %s", Formatting.GRAY, Formatting.BLUE, prefix.substring(0, prefix.length() - 1), Formatting.GRAY, Formatting.RED) + String.format("No linked storage contains the item: %s\n", item.getName().getString()));
+                    MutableComponent text = Component.literal(String.format("%s%s%s%s %s", ChatFormatting.GRAY, ChatFormatting.BLUE, prefix.substring(0, prefix.length() - 1), ChatFormatting.GRAY, ChatFormatting.RED) + String.format("No linked storage contains the item: %s\n", item.getName(item.getDefaultInstance()).getString()));
 
                     disconnectOnError.set(false); // Disable the setting to prevent infinite disconnects
 
-                    ClientPlayNetworkHandler networkHandler = mc.getNetworkHandler();
+                    ClientPacketListener networkHandler = mc.getConnection();
                     if (networkHandler != null) {
                         networkHandler.getConnection().disconnect(text);
                     }
@@ -796,9 +805,9 @@ public class BetterBaritoneBuild extends Module {
                 }
 
                 String prefix = Logger.PREFIX.getString();
-                MutableText text = Text.literal(String.format("%s%s%s%s %s", Formatting.GRAY, Formatting.BLUE, prefix.substring(0, prefix.length() - 1), Formatting.GRAY, Formatting.RED) + "Baritone has finished building!");
+                MutableComponent text = Component.literal(String.format("%s%s%s%s %s", ChatFormatting.GRAY, ChatFormatting.BLUE, prefix.substring(0, prefix.length() - 1), ChatFormatting.GRAY, ChatFormatting.RED) + "Baritone has finished building!");
 
-                ClientPlayNetworkHandler networkHandler = mc.getNetworkHandler();
+                ClientPacketListener networkHandler = mc.getConnection();
                 if (networkHandler != null) {
                     networkHandler.getConnection().disconnect(text);
                 }
@@ -810,7 +819,7 @@ public class BetterBaritoneBuild extends Module {
         if (msg.startsWith("build") || msg.startsWith("litematica")) {
             buildCommand = msg;
             if (debugMode.get()) {
-                Logger.info("Build command captured: %s%s", Formatting.WHITE, buildCommand);
+                Logger.info("Build command captured: %s%s", ChatFormatting.WHITE, buildCommand);
             }
             return;
         }
@@ -827,10 +836,10 @@ public class BetterBaritoneBuild extends Module {
 
     @EventHandler
     private void onInventory(InventoryEvent event) {
-        if (!isActive() || mc.player == null || mc.world == null || mc.currentScreen == null || lastBlockInteractPos == null) return;
+        if (!isActive() || mc.player == null || mc.level == null || mc.gui.screen() == null || lastBlockInteractPos == null) return;
 
         if (StorageRegistry.INSTANCE.find(lastBlockInteractPos) != null) {
-            StorageRegistry.Storage storage = StorageRegistry.INSTANCE.indexStorage(mc.player.currentScreenHandler, lastBlockInteractPos);
+            StorageRegistry.Storage storage = StorageRegistry.INSTANCE.indexStorage(mc.player.containerMenu, lastBlockInteractPos);
             StorageRegistry.INSTANCE.updateStorage(lastBlockInteractPos, storage.inventory);
             StorageRegistry.INSTANCE.update();
             StorageRegistry.INSTANCE.save();
@@ -847,7 +856,7 @@ public class BetterBaritoneBuild extends Module {
             FetchRegistry.INSTANCE.get().forEach(material -> {
                 if (material.item == null || material.stacks <= 0) return;
                 if (!interactionStorage.hasItem(material.item)) return;
-                ScreenHandler handler = mc.player.currentScreenHandler;
+                AbstractContainerMenu handler = mc.player.containerMenu;
                 if (handler == null) return;
 
                 MeteorExecutor.execute(() -> {
@@ -855,10 +864,10 @@ public class BetterBaritoneBuild extends Module {
                     int count = 0;
 
                     int max = 27; // Default size for most chests, shulker boxes, etc.
-                    if (handler.getType() == ScreenHandlerType.GENERIC_9X6) max = 27 * 2;
+                    if (handler.getType() == MenuType.GENERIC_9x6) max = 27 * 2;
 
                     for (int i = 0; i < max; i++) {
-                        if (!handler.getSlot(i).hasStack()) continue;
+                        if (!handler.getSlot(i).hasItem()) continue;
 
                         int sleep;
                         if (initial) {
@@ -873,9 +882,9 @@ public class BetterBaritoneBuild extends Module {
                         }
 
                         // Exit if user closes screen or exit world
-                        if (mc.currentScreen == null || !Utils.canUpdate()) break;
+                        if (mc.gui.screen() == null || !Utils.canUpdate()) break;
 
-                        Item item = handler.getSlot(i).getStack().getItem();
+                        Item item = handler.getSlot(i).getItem().getItem();
                         if (item != material.item) continue;
 
                         count++;
@@ -888,7 +897,7 @@ public class BetterBaritoneBuild extends Module {
 
                     FetchRegistry.Material updatedMaterial = FetchRegistry.INSTANCE.updateMaterial(material, material.stacks - count);
                     if (debugMode.get()) {
-                        Logger.info("Fetched %d stacks of %s%s, %d stacks remaining", count, Formatting.WHITE, material.item.getName().getString(), updatedMaterial != null ? updatedMaterial.stacks : 0);
+                        Logger.info("Fetched %d stacks of %s%s, %d stacks remaining", count, ChatFormatting.WHITE, material.item.getName(material.item.getDefaultInstance()).getString(), updatedMaterial != null ? updatedMaterial.stacks : 0);
                     }
 
                     FetchRegistry.INSTANCE.update();
@@ -903,7 +912,7 @@ public class BetterBaritoneBuild extends Module {
 
         if (!storageLinkMode.get() || StorageRegistry.INSTANCE.find(lastBlockInteractPos) != null) return;
 
-        StorageRegistry.Storage storage = StorageRegistry.INSTANCE.indexStorage(mc.player.currentScreenHandler, lastBlockInteractPos);
+        StorageRegistry.Storage storage = StorageRegistry.INSTANCE.indexStorage(mc.player.containerMenu, lastBlockInteractPos);
         if (storage == null) {
             if (debugMode.get()) Logger.error("Storage is null for block at %s", lastBlockInteractPos);
             return;
@@ -926,13 +935,13 @@ public class BetterBaritoneBuild extends Module {
     }
 
     public void pathToPos(BlockPos blockPos) {
-        if (mc.player == null || mc.world == null) return;
+        if (mc.player == null || mc.level == null) return;
 
-        if (debugMode.get()) Logger.info("%sNavigating to:%s X=%s, Y=%s, Z=%s", Formatting.GREEN, Formatting.WHITE, blockPos.getX(), blockPos.getY(), blockPos.getZ());
+        if (debugMode.get()) Logger.info("%sNavigating to:%s X=%s, Y=%s, Z=%s", ChatFormatting.GREEN, ChatFormatting.WHITE, blockPos.getX(), blockPos.getY(), blockPos.getZ());
 
 
         if (!ignoreY.get()) {
             baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(blockPos));
-        } else baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(blockPos.withY(mc.player.getBlockY())));
+        } else baritone.getCustomGoalProcess().setGoalAndPath(new GoalGetToBlock(blockPos.atY(mc.player.getBlockY())));
     }
 }
