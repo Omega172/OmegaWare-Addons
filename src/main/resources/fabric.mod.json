@@ -7,6 +7,15 @@
   "authors": [
     "Omega172"
   ],
+  "contributors": [
+    {
+      "name": "Abelpro678",
+      "contact": {
+        "homepage": "https://github.com/Abelkrijgtalles",
+        "modrinth": "https://modrinth.com/user/Abelpro678"
+      }
+    }
+  ],
   "contact": {
     "repo": "https://github.com/Omega172/OmegaWare-Addons"
   },
@@ -25,7 +34,7 @@
     "omegaware-addons:commit": "${commit}"
   },
   "depends": {
-    "java": ">=21",
+    "java": ">=25",
     "minecraft": ["${mc_version}"],
     "meteor-client": "*"
   }

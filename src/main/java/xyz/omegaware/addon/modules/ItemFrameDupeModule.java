@@ -9,18 +9,20 @@ import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.meteorclient.utils.player.FindItemResult;
 import meteordevelopment.meteorclient.utils.player.InvUtils;
 import meteordevelopment.orbit.EventHandler;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.decoration.ItemFrameEntity;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.util.Hand;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.GameMode;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.decoration.ItemFrame;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.GameType;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.EntityHitResult;
 import org.jetbrains.annotations.NotNull;
 import xyz.omegaware.addon.OmegawareAddons;
 import xyz.omegaware.addon.utils.Logger;
@@ -133,13 +135,13 @@ public class ItemFrameDupeModule extends Module {
             return;
         }
 
-        if (mc.player == null || mc.world == null || mc.interactionManager == null) return;
-        if (mc.world.getBlockState(mc.player.getBlockPos().up(3)).isAir()) return;
-        if (mc.interactionManager.getCurrentGameMode() != GameMode.SURVIVAL) return;
+        if (mc.player == null || mc.level == null || mc.gameMode == null) return;
+        if (mc.level.getBlockState(mc.player.blockPosition().above(3)).isAir()) return;
+        if (mc.gameMode.getPlayerMode() != GameType.SURVIVAL) return;
 
-        Box blockAbovePlayer = new Box(mc.player.getBlockPos().up(2));
-        List<Entity> entitiesAbovePlayer = mc.world.getOtherEntities(null, blockAbovePlayer);
-        entitiesAbovePlayer.removeIf(entity -> !(entity instanceof ItemFrameEntity));
+        AABB blockAbovePlayer = new AABB(mc.player.blockPosition().above(2));
+        List<Entity> entitiesAbovePlayer = mc.level.getEntities(null, blockAbovePlayer);
+        entitiesAbovePlayer.removeIf(entity -> !(entity instanceof ItemFrame));
 
         if (entitiesAbovePlayer.isEmpty()) {
             if (!getItemFrame()) return;
@@ -153,10 +155,10 @@ public class ItemFrameDupeModule extends Module {
                 for (ItemStack queuedShulker : shulkerQueue) {
                     int count = 0;
                     List<Integer> indices = new ArrayList<>();
-                    for (int i = 0; i < mc.player.getInventory().size(); i++) {
-                        ItemStack invStack = mc.player.getInventory().getStack(i);
+                    for (int i = 0; i < mc.player.getInventory().getContainerSize(); i++) {
+                        ItemStack invStack = mc.player.getInventory().getItem(i);
                         if (!invStack.isEmpty() &&
-                            invStack.toHoverableText().equals(queuedShulker.toHoverableText()) &&
+                            invStack.getDisplayName().equals(queuedShulker.getDisplayName()) &&
                             invStack.getItem() == queuedShulker.getItem() &&
                             isShulkerBox(invStack.getItem())) {
                             count++;
@@ -171,7 +173,7 @@ public class ItemFrameDupeModule extends Module {
                         for (int index : indices) {
                             if (dropCount <= 0) break;
                             int containerIndex = (index < 9) ? index + 36 : index;
-                            if (!isShulkerBox(mc.player.getInventory().getStack(containerIndex).getItem())) continue;
+                            if (!isShulkerBox(mc.player.getInventory().getItem(containerIndex).getItem())) continue;
 
                             InvUtils.drop().slot(containerIndex);
                             dropCount--;
@@ -181,8 +183,8 @@ public class ItemFrameDupeModule extends Module {
             }
         }
 
-        ItemFrameEntity frame = (ItemFrameEntity)entitiesAbovePlayer.getFirst();
-        if (frame.getHeldItemStack().isEmpty()) {
+        ItemFrame frame = (ItemFrame)entitiesAbovePlayer.getFirst();
+        if (frame.getItem().isEmpty()) {
             if (!getShulker()) return;
             interactItemFrame(frame);
             forceDelay = insertToRotateDelay.get();
@@ -204,8 +206,8 @@ public class ItemFrameDupeModule extends Module {
     private boolean getItemFrame() {
         if (mc.player == null) return false;
 
-        int selectedSlot = mc.player.getInventory().selectedSlot;
-        if (mc.player.getInventory().getStack(selectedSlot).getItem() == Items.ITEM_FRAME) return true;
+        int selectedSlot = mc.player.getInventory().getSelectedSlot();
+        if (mc.player.getInventory().getItem(selectedSlot).getItem() == Items.ITEM_FRAME) return true;
 
         FindItemResult res = InvUtils.findInHotbar(Items.ITEM_FRAME);
         FindItemResult resInv = InvUtils.find(Items.ITEM_FRAME);
@@ -221,33 +223,33 @@ public class ItemFrameDupeModule extends Module {
     }
 
     public void placeItemFrame() {
-        if (mc.world == null || mc.player == null || mc.interactionManager == null) return;
+        if (mc.level == null || mc.player == null || mc.gameMode == null) return;
 
-        BlockPos targetPos = mc.player.getBlockPos().up(3);
+        BlockPos targetPos = mc.player.blockPosition().above(3);
 
-        if (mc.world.getBlockState(targetPos).isAir()) return;
+        if (mc.level.getBlockState(targetPos).isAir()) return;
 
         Direction face = Direction.DOWN;
 
-        Vec3d hitPos = Vec3d.ofCenter(targetPos);
+        Vec3 hitPos = Vec3.atCenterOf(targetPos);
         BlockHitResult hit = new BlockHitResult(hitPos, face, targetPos, false);
 
-        mc.interactionManager.interactBlock(mc.player, Hand.MAIN_HAND, hit);
-        mc.player.swingHand(Hand.MAIN_HAND);
+        mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, hit);
+        mc.player.swing(InteractionHand.MAIN_HAND);
     }
 
-    public void interactItemFrame(ItemFrameEntity frame) {
-        if (mc.player == null || mc.interactionManager == null) return;
+    public void interactItemFrame(ItemFrame frame) {
+        if (mc.player == null || mc.gameMode == null) return;
 
-        mc.interactionManager.interactEntity(mc.player, frame, Hand.MAIN_HAND);
-        mc.player.swingHand(Hand.MAIN_HAND);
+        mc.gameMode.interact(mc.player, frame, new EntityHitResult(frame), InteractionHand.MAIN_HAND);
+        mc.player.swing(InteractionHand.MAIN_HAND);
     }
 
-    public void attackItemFrame(ItemFrameEntity frame) {
-        if (mc.player == null || mc.interactionManager == null) return;
+    public void attackItemFrame(ItemFrame frame) {
+        if (mc.player == null || mc.gameMode == null) return;
 
-        mc.interactionManager.attackEntity(mc.player, frame);
-        mc.player.swingHand(Hand.MAIN_HAND);
+        mc.gameMode.attack(mc.player, frame);
+        mc.player.swing(InteractionHand.MAIN_HAND);
     }
 
     private boolean getShulker() {
@@ -265,14 +267,14 @@ public class ItemFrameDupeModule extends Module {
 
             FindItemResult hotbarRes = InvUtils.findInHotbar(itemStack -> {
                 Item item = itemStack.getItem();
-                return isShulkerBox(item) && itemStack.getCount() > 0 && itemStack.isOf(shulkerStack.getItem());
+                return isShulkerBox(item) && itemStack.getCount() > 0 && itemStack.is(shulkerStack.getItem());
             });
 
             if (hotbarRes.count() > 0) {
-                ItemStack itemStack = mc.player.getInventory().getStack(hotbarRes.slot());
+                ItemStack itemStack = mc.player.getInventory().getItem(hotbarRes.slot());
                 if (itemStack.isEmpty()) return false;
 
-                if (itemStack.toHoverableText().equals(shulkerStack.toHoverableText()) && itemStack.getItem() == shulkerStack.getItem()) {
+                if (itemStack.getDisplayName().equals(shulkerStack.getDisplayName()) && itemStack.getItem() == shulkerStack.getItem()) {
                     mc.player.getInventory().setSelectedSlot(hotbarRes.slot());
                     return true;
                 }
@@ -281,14 +283,14 @@ public class ItemFrameDupeModule extends Module {
 
             FindItemResult invRes = InvUtils.find(itemStack -> {
                 Item item = itemStack.getItem();
-                return isShulkerBox(item) && itemStack.getCount() > 0 && itemStack.isOf(shulkerStack.getItem());
+                return isShulkerBox(item) && itemStack.getCount() > 0 && itemStack.is(shulkerStack.getItem());
             });
 
             if (invRes.count() > 0) {
                 for (int i = 0; i < invRes.count(); i++) {
-                    ItemStack itemStack = mc.player.getInventory().getStack(invRes.slot());
-                    if (itemStack.toHoverableText().equals(shulkerStack.toHoverableText()) && itemStack.getItem() == shulkerStack.getItem()) {
-                        InvUtils.move().fromId(invRes.slot()).to(mc.player.getInventory().selectedSlot);
+                    ItemStack itemStack = mc.player.getInventory().getItem(invRes.slot());
+                    if (itemStack.getDisplayName().equals(shulkerStack.getDisplayName()) && itemStack.getItem() == shulkerStack.getItem()) {
+                        InvUtils.move().fromId(invRes.slot()).to(mc.player.getInventory().getSelectedSlot());
                         return true;
                     }
                 }
@@ -314,31 +316,11 @@ public class ItemFrameDupeModule extends Module {
             return true;
         }
 
-        InvUtils.move().fromId(invRes.slot()).to(mc.player.getInventory().selectedSlot);
+        InvUtils.move().fromId(invRes.slot()).to(mc.player.getInventory().getSelectedSlot());
         return true;
     }
 
     private boolean isShulkerBox(Item item) {
-        List<@NotNull Item> SHULKERS = List.of(
-            Items.SHULKER_BOX,
-            Items.WHITE_SHULKER_BOX,
-            Items.ORANGE_SHULKER_BOX,
-            Items.MAGENTA_SHULKER_BOX,
-            Items.LIGHT_BLUE_SHULKER_BOX,
-            Items.YELLOW_SHULKER_BOX,
-            Items.LIME_SHULKER_BOX,
-            Items.PINK_SHULKER_BOX,
-            Items.GRAY_SHULKER_BOX,
-            Items.LIGHT_GRAY_SHULKER_BOX,
-            Items.CYAN_SHULKER_BOX,
-            Items.PURPLE_SHULKER_BOX,
-            Items.BLUE_SHULKER_BOX,
-            Items.BROWN_SHULKER_BOX,
-            Items.GREEN_SHULKER_BOX,
-            Items.RED_SHULKER_BOX,
-            Items.BLACK_SHULKER_BOX
-        );
-
-        return SHULKERS.contains(item);
+        return item.builtInRegistryHolder().is(ItemTags.SHULKER_BOXES);
     }
 }

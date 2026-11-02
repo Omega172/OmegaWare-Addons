@@ -19,18 +19,28 @@ import meteordevelopment.meteorclient.systems.modules.misc.AutoReconnect;
 import meteordevelopment.meteorclient.systems.modules.world.StashFinder;
 import meteordevelopment.meteorclient.utils.render.MeteorToast;
 import meteordevelopment.orbit.EventHandler;
-import net.minecraft.block.entity.*;
-import net.minecraft.client.network.ClientPlayNetworkHandler;
-import net.minecraft.item.Items;
-import net.minecraft.text.MutableText;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.ChunkPos;
+import net.minecraft.ChatFormatting;
+import net.minecraft.world.level.block.entity.*;
+import net.minecraft.client.multiplayer.ClientPacketListener;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity;
+import net.minecraft.world.level.block.entity.BarrelBlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityType;
+import net.minecraft.world.level.block.entity.ChestBlockEntity;
+import net.minecraft.world.level.block.entity.DispenserBlockEntity;
+import net.minecraft.world.level.block.entity.EnderChestBlockEntity;
+import net.minecraft.world.level.block.entity.HopperBlockEntity;
+import net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity;
 import xyz.omegaware.addon.OmegawareAddons;
 import xyz.omegaware.addon.utils.Logger;
 
 import java.io.*;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -103,8 +113,8 @@ public class BetterStashFinderModule extends Module {
     @EventHandler
     private void onChunkData(ChunkDataEvent event) {
         // Check the distance.
-        double chunkXAbs = Math.abs(event.chunk().getPos().x * 16);
-        double chunkZAbs = Math.abs(event.chunk().getPos().z * 16);
+        double chunkXAbs = Math.abs(event.chunk().getPos().x() * 16);
+        double chunkZAbs = Math.abs(event.chunk().getPos().z() * 16);
         if (Math.sqrt(chunkXAbs * chunkXAbs + chunkZAbs * chunkZAbs) < minimumDistance.get()) return;
 
         StashFinder.Chunk chunk = new StashFinder.Chunk(event.chunk().getPos());
@@ -134,11 +144,11 @@ public class BetterStashFinderModule extends Module {
 
             if (sendNotifications.get() && (!chunk.equals(prevChunk) || !chunk.countsEqual(prevChunk))) {
                 switch (notificationMode.get()) {
-                    case Chat -> info("Found stash at (highlight)%s(default), (highlight)%s(default).", chunk.x, chunk.z);
-                    case Toast -> mc.getToastManager().add(new MeteorToast(Items.CHEST, title, "Found Stash!"));
+                    case Chat -> info("Found stash at (highlight)%s(default), (highlight)%s(default).", chunk.chunkPos.getMiddleBlockX(), chunk.chunkPos.getMiddleBlockZ());
+                    case Toast -> mc.gui.toastManager().addToast(new MeteorToast.Builder(title).icon(Items.CHEST).text("Found Stash!").build());
                     case Both -> {
-                        info("Found stash at (highlight)%s(default), (highlight)%s(default).", chunk.x, chunk.z);
-                        mc.getToastManager().add(new MeteorToast(Items.CHEST, title, "Found Stash!"));
+                        info("Found stash at (highlight)%s(default), (highlight)%s(default).", chunk.chunkPos.getMiddleBlockX(), chunk.chunkPos.getMiddleBlockX());
+                        mc.gui.toastManager().addToast(new MeteorToast.Builder(title).icon(Items.CHEST).text("Found Stash!").build());
                     }
                 }
             }
@@ -150,11 +160,11 @@ public class BetterStashFinderModule extends Module {
                 }
 
                 String prefix = Logger.PREFIX.getString();
-                MutableText text = Text.literal(String.format("%s%s%s%s %s", Formatting.GRAY, Formatting.BLUE, prefix.substring(0, prefix.length() - 1), Formatting.GRAY, Formatting.RED) + String.format("Found stash at %s, %s.", chunk.x, chunk.z)).append("\n");
+                MutableComponent text = Component.literal(String.format("%s%s%s%s %s", ChatFormatting.GRAY, ChatFormatting.BLUE, prefix.substring(0, prefix.length() - 1), ChatFormatting.GRAY, ChatFormatting.RED) + String.format("Found stash at %s, %s.", chunk.chunkPos.getMiddleBlockX(), chunk.chunkPos.getMiddleBlockZ())).append("\n");
 
                 disconnectOnStashFound.set(false); // Disable the setting to prevent infinite disconnects
 
-                ClientPlayNetworkHandler networkHandler = mc.getNetworkHandler();
+                ClientPacketListener networkHandler = mc.getConnection();
                 if (networkHandler != null) {
                     networkHandler.getConnection().disconnect(text);
                 }
@@ -188,14 +198,14 @@ public class BetterStashFinderModule extends Module {
 
     private void fillTable(GuiTheme theme, WTable table) {
         for (StashFinder.Chunk chunk : chunks) {
-            table.add(theme.label("Pos: " + chunk.x + ", " + chunk.z));
+            table.add(theme.label("Pos: " + chunk.chunkPos.getMiddleBlockX() + ", " + chunk.chunkPos.getMiddleBlockZ()));
             table.add(theme.label("Total: " + chunk.getTotal()));
 
             WButton open = table.add(theme.button("Open")).widget();
-            open.action = () -> mc.setScreen(new ChunkScreen(theme, chunk));
+            open.action = () -> mc.gui.setScreen(new ChunkScreen(theme, chunk));
 
             WButton gotoBtn = table.add(theme.button("Goto")).widget();
-            gotoBtn.action = () -> PathManagers.get().moveTo(new BlockPos(chunk.x, 0, chunk.z), true);
+            gotoBtn.action = () -> PathManagers.get().moveTo(new BlockPos(chunk.chunkPos.getMiddleBlockX(), 0, chunk.chunkPos.getMiddleBlockZ()), true);
 
             WMinus delete = table.add(theme.minus()).widget();
             delete.action = () -> {
@@ -217,7 +227,7 @@ public class BetterStashFinderModule extends Module {
             File file = OmegawareAddons.GetConfigFile("better-stash-finder", "stashes.csv");
             //noinspection ResultOfMethodCallIgnored
             file.getParentFile().mkdirs();
-            Writer writer = new FileWriter(file);
+            BufferedWriter writer = Files.newBufferedWriter(file.toPath());
 
             writer.write("X,Z,Chests,Barrels,Shulkers,EnderChests,Furnaces,DispensersDroppers,Hoppers\n");
             for (StashFinder.Chunk chunk : chunks) chunk.write(writer);
@@ -251,8 +261,6 @@ public class BetterStashFinderModule extends Module {
                 FileReader reader = new FileReader(file);
                 chunks = GSON.fromJson(reader, new TypeToken<List<StashFinder.Chunk>>() {}.getType());
                 reader.close();
-
-                for (StashFinder.Chunk chunk : chunks) chunk.calculatePos();
 
                 loaded = true;
             } catch (Exception ignored) {
@@ -298,7 +306,7 @@ public class BetterStashFinderModule extends Module {
         private final StashFinder.Chunk chunk;
 
         public ChunkScreen(GuiTheme theme, StashFinder.Chunk chunk) {
-            super(theme, "Chunk at " + chunk.x + ", " + chunk.z);
+            super(theme, "Chunk at " + chunk.chunkPos.getMiddleBlockX() + ", " + chunk.chunkPos.getMiddleBlockZ());
 
             this.chunk = chunk;
         }

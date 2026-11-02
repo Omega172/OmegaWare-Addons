@@ -5,16 +5,15 @@ import meteordevelopment.meteorclient.renderer.ShapeMode;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.utils.Utils;
 import meteordevelopment.meteorclient.utils.render.color.SettingColor;
-import net.minecraft.block.Blocks;
-import net.minecraft.block.entity.BeaconBlockEntity;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.world.World;
 import xyz.omegaware.addon.OmegawareAddons;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.orbit.EventHandler;
-
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.BeaconBlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.phys.AABB;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -87,14 +86,14 @@ public class BeaconRangeModule extends Module {
 
     @EventHandler
     private void onRender(Render3DEvent event) {
-        List<Box> renderedBoxes = new ArrayList<>();
+        List<AABB> renderedBoxes = new ArrayList<>();
         double epsilon = 0.001;
 
         for (BlockEntity blockEntity : Utils.blockEntities()) {
             if (!(blockEntity instanceof BeaconBlockEntity)) continue;
 
-            BlockPos pos = blockEntity.getPos();
-            int level = getBeaconLevel(blockEntity.getWorld(), pos);
+            BlockPos pos = blockEntity.getBlockPos();
+            int level = getBeaconLevel(blockEntity.getLevel(), pos);
             if (level < 1) continue;
 
             int range = 10 + (level * 10);
@@ -106,13 +105,13 @@ public class BeaconRangeModule extends Module {
             double y2 = pos.getY() + range;
             double z2 = pos.getZ() + range;
 
-            List<Box> toRender = new ArrayList<>();
-            toRender.add(new Box(x1, y1, z1, x2, y2, z2));
+            List<AABB> toRender = new ArrayList<>();
+            toRender.add(new AABB(x1, y1, z1, x2, y2, z2));
 
             if (cullOverlapping.get()) {
-                for (Box prev : renderedBoxes) {
-                    List<Box> next = new ArrayList<>();
-                    for (Box box : toRender) {
+                for (AABB prev : renderedBoxes) {
+                    List<AABB> next = new ArrayList<>();
+                    for (AABB box : toRender) {
                         next.addAll(subtractBox(box, prev));
                     }
                     toRender = next;
@@ -120,10 +119,10 @@ public class BeaconRangeModule extends Module {
                 }
             }
 
-            renderedBoxes.add(new Box(x1, y1, z1, x2, y2, z2));
+            renderedBoxes.add(new AABB(x1, y1, z1, x2, y2, z2));
 
             // Per-face, per-section rendering
-            for (Box box : toRender) {
+            for (AABB box : toRender) {
                 for (int axis = 0; axis < 3; axis++) {
                     for (boolean isMin : new boolean[]{true, false}) {
                         Rect2D faceRect;
@@ -145,7 +144,7 @@ public class BeaconRangeModule extends Module {
                         }
                         List<Rect2D> visible = new ArrayList<>();
                         visible.add(faceRect);
-                        for (Box other : renderedBoxes) {
+                        for (AABB other : renderedBoxes) {
                             if (other == box) break; // Only check previous boxes
                             boolean sharesFace = false;
                             Rect2D overlap = null;
@@ -216,8 +215,8 @@ public class BeaconRangeModule extends Module {
         }
     }
 
-    private List<Box> subtractBox(Box box, Box subtract) {
-        List<Box> result = new ArrayList<>();
+    private List<AABB> subtractBox(AABB box, AABB subtract) {
+        List<AABB> result = new ArrayList<>();
         if (!box.intersects(subtract)) {
             result.add(box);
             return result;
@@ -231,38 +230,38 @@ public class BeaconRangeModule extends Module {
 
         // Left
         if (x1 < sx1)
-            result.add(new Box(x1, y1, z1, sx1, y2, z2));
+            result.add(new AABB(x1, y1, z1, sx1, y2, z2));
         // Right
         if (x2 > sx2)
-            result.add(new Box(sx2, y1, z1, x2, y2, z2));
+            result.add(new AABB(sx2, y1, z1, x2, y2, z2));
         // Bottom
         if (y1 < sy1)
-            result.add(new Box(Math.max(x1, sx1), y1, z1, Math.min(x2, sx2), sy1, z2));
+            result.add(new AABB(Math.max(x1, sx1), y1, z1, Math.min(x2, sx2), sy1, z2));
         // Top
         if (y2 > sy2)
-            result.add(new Box(Math.max(x1, sx1), sy2, z1, Math.min(x2, sx2), y2, z2));
+            result.add(new AABB(Math.max(x1, sx1), sy2, z1, Math.min(x2, sx2), y2, z2));
         // Front
         if (z1 < sz1)
-            result.add(new Box(Math.max(x1, sx1), Math.max(y1, sy1), z1, Math.min(x2, sx2), Math.min(y2, sy2), sz1));
+            result.add(new AABB(Math.max(x1, sx1), Math.max(y1, sy1), z1, Math.min(x2, sx2), Math.min(y2, sy2), sz1));
         // Back
         if (z2 > sz2)
-            result.add(new Box(Math.max(x1, sx1), Math.max(y1, sy1), sz2, Math.min(x2, sx2), Math.min(y2, sy2), z2));
+            result.add(new AABB(Math.max(x1, sx1), Math.max(y1, sy1), sz2, Math.min(x2, sx2), Math.min(y2, sy2), z2));
 
         return result;
     }
 
-    public static int getBeaconLevel(World world, BlockPos beaconPos) {
+    public static int getBeaconLevel(Level world, BlockPos beaconPos) {
         int level = 0;
 
         for (int y = 1; y <= 4; y++) {
             int layerY = beaconPos.getY() - y;
-            if (layerY < world.getBottomY()) break;
+            if (layerY < world.getMinY()) break;
 
             boolean validLayer = true;
 
             for (int x = -y; x <= y; x++) {
                 for (int z = -y; z <= y; z++) {
-                    BlockPos checkPos = beaconPos.add(x, -y, z);
+                    BlockPos checkPos = beaconPos.offset(x, -y, z);
                     if (!isValidBeaconBase(world, checkPos)) {
                         validLayer = false;
                         break;
@@ -281,12 +280,12 @@ public class BeaconRangeModule extends Module {
         return level;
     }
 
-    private static boolean isValidBeaconBase(World world, BlockPos pos) {
-        return world.getBlockState(pos).isOf(Blocks.IRON_BLOCK)
-            || world.getBlockState(pos).isOf(Blocks.GOLD_BLOCK)
-            || world.getBlockState(pos).isOf(Blocks.EMERALD_BLOCK)
-            || world.getBlockState(pos).isOf(Blocks.DIAMOND_BLOCK)
-            || world.getBlockState(pos).isOf(Blocks.NETHERITE_BLOCK);
+    private static boolean isValidBeaconBase(Level world, BlockPos pos) {
+        return world.getBlockState(pos).is(Blocks.IRON_BLOCK)
+            || world.getBlockState(pos).is(Blocks.GOLD_BLOCK)
+            || world.getBlockState(pos).is(Blocks.EMERALD_BLOCK)
+            || world.getBlockState(pos).is(Blocks.DIAMOND_BLOCK)
+            || world.getBlockState(pos).is(Blocks.NETHERITE_BLOCK);
     }
     // End of BeaconCache
 }

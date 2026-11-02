@@ -1,10 +1,9 @@
 plugins {
-    id("fabric-loom") version "1.10-SNAPSHOT"
+    id("net.fabricmc.fabric-loom") version "1.17-SNAPSHOT"
 }
 
 val targetVersion = findProperty("target_version") as String? ?: "1_21_4"
 val minecraftVersion = properties["minecraft_version_$targetVersion"] as String
-val yarnMappings = properties["yarn_mappings_$targetVersion"] as String
 val loaderVersion = properties["loader_version_$targetVersion"] as String
 
 base {
@@ -29,14 +28,13 @@ val meteorClientVersion = if (minecraftVersion == "1.21.1") "0.5.8" else minecra
 dependencies {
     // Fabric
     minecraft("com.mojang:minecraft:$minecraftVersion")
-    mappings("net.fabricmc:yarn:$yarnMappings:v2")
-    modImplementation("net.fabricmc:fabric-loader:$loaderVersion")
+    implementation("net.fabricmc:fabric-loader:$loaderVersion")
 
     // Meteor
-    modImplementation("meteordevelopment:meteor-client:$meteorClientVersion-SNAPSHOT")
+    implementation("meteordevelopment:meteor-client:$meteorClientVersion-SNAPSHOT")
 
     // Baritone
-    modCompileOnly("meteordevelopment:baritone:$minecraftVersion-SNAPSHOT")
+    compileOnly("meteordevelopment:baritone:$minecraftVersion-SNAPSHOT")
 }
 
 tasks {
@@ -66,12 +64,12 @@ tasks {
     }
 
     java {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
+        sourceCompatibility = JavaVersion.VERSION_25
+        targetCompatibility = JavaVersion.VERSION_25
     }
 
     withType<JavaCompile> {
         options.encoding = "UTF-8"
-        options.release = 21
+        options.release = 25
     }
 }

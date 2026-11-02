@@ -77,7 +77,7 @@ public class OnlineTSRMembersHUD extends HudElement {
         //renderer.quad(x, y, getWidth(), getHeight(), Color.LIGHT_GRAY);
 
         // get all online players from tab list
-        List<String> onlinePlayers = new ArrayList<>(mc.player.networkHandler.getPlayerList().stream().map(playerInfo -> playerInfo.getProfile().getName()).toList());
+        List<String> onlinePlayers = new ArrayList<>(mc.player.connection.getOnlinePlayers().stream().map(playerInfo -> playerInfo.getProfile().name()).toList());
 
         AtomicDouble screenY = new AtomicDouble(y+4);
 

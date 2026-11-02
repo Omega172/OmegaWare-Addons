@@ -6,11 +6,11 @@ import meteordevelopment.meteorclient.systems.hud.HudElementInfo;
 import meteordevelopment.meteorclient.systems.hud.HudRenderer;
 import meteordevelopment.meteorclient.utils.Utils;
 import meteordevelopment.meteorclient.utils.render.color.Color;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.ChestBlock;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.block.entity.ChestBlockEntity;
-import net.minecraft.block.enums.ChestType;
+import net.minecraft.world.level.block.ChestBlock;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.ChestBlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.ChestType;
 import xyz.omegaware.addon.OmegawareAddons;
 
 import static meteordevelopment.meteorclient.MeteorClient.mc;
@@ -24,14 +24,14 @@ public class ChestCount extends HudElement {
 
     @Override
     public void render(HudRenderer renderer) {
-        if (mc.player == null || mc.world == null) return;
+        if (mc.player == null || mc.level == null) return;
 
         int count = 0;
         for (BlockEntity blockEntity : Utils.blockEntities()) {
             if (!(blockEntity instanceof ChestBlockEntity chestBlock)) continue;
 
-            BlockState blockState = chestBlock.getCachedState();
-            ChestType chestType = blockState.get(ChestBlock.CHEST_TYPE);
+            BlockState blockState = chestBlock.getBlockState();
+            ChestType chestType = blockState.getValue(ChestBlock.TYPE);
 
             // Only count left chests to avoid double counting
             if (chestType.equals(ChestType.SINGLE) || chestType.equals(ChestType.RIGHT)) continue;

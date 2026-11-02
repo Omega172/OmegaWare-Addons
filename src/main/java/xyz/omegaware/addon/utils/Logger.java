@@ -1,25 +1,25 @@
 package xyz.omegaware.addon.utils;
 
 import meteordevelopment.meteorclient.utils.player.ChatUtils;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
+import net.minecraft.ChatFormatting;
+import net.minecraft.network.chat.Component;
 
 public class Logger {
 
-    public static final Text PREFIX = Text.empty()
-        .append(Text.literal("[").formatted(Formatting.WHITE))
-        .append(Text.literal("OmegaWare").formatted(Formatting.AQUA))
-        .append(Text.literal("] ").formatted(Formatting.WHITE));
+    public static final Component PREFIX = Component.empty()
+        .append(Component.literal("[").withStyle(ChatFormatting.WHITE))
+        .append(Component.literal("OmegaWare").withStyle(ChatFormatting.AQUA))
+        .append(Component.literal("] ").withStyle(ChatFormatting.WHITE));
 
-    private static final Text WARN = Text.empty()
-        .append(Text.literal("[").formatted(Formatting.WHITE))
-        .append(Text.literal("WARNING").formatted(Formatting.YELLOW))
-        .append(Text.literal("] ").formatted(Formatting.WHITE));
+    private static final Component WARN = Component.empty()
+        .append(Component.literal("[").withStyle(ChatFormatting.WHITE))
+        .append(Component.literal("WARNING").withStyle(ChatFormatting.YELLOW))
+        .append(Component.literal("] ").withStyle(ChatFormatting.WHITE));
 
-    private static final Text ERROR = Text.empty()
-        .append(Text.literal("[").formatted(Formatting.WHITE))
-        .append(Text.literal("ERROR").formatted(Formatting.RED))
-        .append(Text.literal("] ").formatted(Formatting.WHITE));
+    private static final Component ERROR = Component.empty()
+        .append(Component.literal("[").withStyle(ChatFormatting.WHITE))
+        .append(Component.literal("ERROR").withStyle(ChatFormatting.RED))
+        .append(Component.literal("] ").withStyle(ChatFormatting.WHITE));
 
     /**
      * Sends a message to the chat with the given format string and arguments, prefixed with the OmegaWare prefix.
@@ -29,7 +29,7 @@ public class Logger {
      * </pre>
      */
     public static void info(String message, Object... args) {
-        ChatUtils.sendMsg(PREFIX.copy().append(Text.literal(String.format(message, args))));
+        ChatUtils.sendMsg(PREFIX.copy().append(Component.literal(String.format(message, args))));
     }
 
     /**
@@ -41,7 +41,7 @@ public class Logger {
      * </pre>
      */
     public static void warn(String message, Object... args) {
-        ChatUtils.sendMsg(PREFIX.copy().append(WARN).append(Text.literal(String.format(message, args))).formatted(Formatting.YELLOW));
+        ChatUtils.sendMsg(PREFIX.copy().append(WARN).append(Component.literal(String.format(message, args))).withStyle(ChatFormatting.YELLOW));
     }
 
     /**
@@ -53,6 +53,6 @@ public class Logger {
      * </pre>
      */
     public static void error(String message, Object... args) {
-        ChatUtils.sendMsg(PREFIX.copy().append(ERROR).append(Text.literal(String.format(message, args))).formatted(Formatting.RED));
+        ChatUtils.sendMsg(PREFIX.copy().append(ERROR).append(Component.literal(String.format(message, args))).withStyle(ChatFormatting.RED));
     }
 }
